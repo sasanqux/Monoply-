@@ -38,7 +38,13 @@ const statusText = computed(() => {
 
 <template>
   <section class="actions card-comic">
-    <p class="actions__status" :class="{ 'actions__status--mine': isMyTurn }">{{ statusText }}</p>
+    <div class="actions__status-col">
+      <p class="actions__status" :class="{ 'actions__status--mine': isMyTurn }">{{ statusText }}</p>
+      <p class="actions__meta">
+        <span>第 {{ state.round }} 回合</span>
+        <span class="actions__dice">🎲 {{ state.dice ? state.dice.join(' + ') : '—' }}</span>
+      </p>
+    </div>
 
     <div v-if="isMyTurn" class="actions__btns">
       <button
@@ -84,6 +90,24 @@ const statusText = computed(() => {
 
 .actions__status--mine {
   color: var(--pop-red);
+}
+
+.actions__status-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.actions__meta {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  font-weight: 900;
+  opacity: 0.7;
+}
+
+.actions__dice {
+  letter-spacing: 0.08em;
 }
 
 .actions__btns {

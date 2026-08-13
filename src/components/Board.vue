@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { TILES, RIVERS, GROUPS, isPropertyTile, isBridge, isMetro, SHOPS } from '../game/index.js'
+import { TILES, RIVERS, METRO_LINE, GROUPS, isPropertyTile, isBridge, isMetro, SHOPS } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
@@ -11,6 +11,7 @@ const emit = defineEmits(['tileClick', 'upgrade'])
 
 const tiles = computed(() => TILES.filter(Boolean))
 
+// 蛇形路径连接线（含左侧回程 48→1 闭环）
 const pathLine = computed(() => {
   return tiles.value.map((t) => `${t.x},${t.y}`).join(' ')
 })
@@ -28,7 +29,7 @@ function tileBg(t) {
 
 function tileFg(t) {
   if (t.type === 'land' && !t.group) return '#1a1a1a'
-  if (t.type === 'event') return '#1a1a1a'
+  if (t.type === 'event' || t.type === 'metro') return '#1a1a1a'
   return '#ffffff'
 }
 
@@ -38,7 +39,6 @@ function tileMark(t) {
     case 'metro': return '🚈'
     case 'bridge': return '🌉'
     case 'event': return t.id === 42 ? '🍲' : '?'
-    case 'land': return ''
     default: return ''
   }
 }
@@ -85,18 +85,17 @@ function onTile(t) {
     emit('upgrade', t.id)
   }
 }
-
-const diceText = computed(() => {
-  if (!props.state.dice) return '—'
-  return props.state.dice.join(' + ')
-})
 </script>
 
 <template>
   <div class="board">
-    <svg class="board__rivers" viewBox="0 0 100 88" preserveAspectRatio="none" aria-hidden="true">
-      <path v-for="r in RIVERS" :key="r.name" :d="r.d" fill="none" stroke="#3b82f6" stroke-width="3" stroke-linecap="round" opacity="0.5" />
-      <polyline :points="pathLine" fill="none" stroke="#1a1a1a" stroke-width="0.6" stroke-dasharray="1.5 1.5" opacity="0.3" />
+    <svg class="board__bg" viewBox="0 0 100 90" preserveAspectRatio="none" aria-hidden="true">
+      <!-- 两江 -->
+      <path v-for="r in RIVERS" :key="r.name" :d="r.d" fill="none" stroke="#3b82f6" stroke-width="4" stroke-linecap="round" opacity="0.6" />
+      <!-- 轻轨线（立体交通） -->
+      <path :d="METRO_LINE" fill="none" stroke="#a855f7" stroke-width="1.2" stroke-dasharray="3 2.5" opacity="0.8" />
+      <!-- 蛇形路径线 -->
+      <polyline :points="pathLine" fill="none" stroke="#1a1a1a" stroke-width="1.6" stroke-linejoin="round" opacity="0.55" />
     </svg>
 
     <div
@@ -134,15 +133,6 @@ const diceText = computed(() => {
         </i>
       </span>
     </div>
-
-    <div class="board__center">
-      <div class="board__logo">重庆<br />大富翁</div>
-      <div class="board__info">
-        <span>第 {{ state.round }} 回合</span>
-        <span class="board__who">轮到 <b>{{ current ? current.name : '—' }}</b></span>
-        <span class="board__dice">🎲 {{ diceText }}</span>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -150,9 +140,8 @@ const diceText = computed(() => {
 .board {
   position: relative;
   width: 100%;
-  max-width: 700px;
-  margin: 0 auto;
-  aspect-ratio: 100 / 88;
+  aspect-ratio: 100 / 85;
+  container-type: inline-size;
   border: 4px solid var(--ink);
   border-radius: 10px;
   background: #fffef0;
@@ -160,7 +149,7 @@ const diceText = computed(() => {
   box-shadow: 6px 6px 0 0 var(--ink);
 }
 
-.board__rivers {
+.board__bg {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -171,54 +160,54 @@ const diceText = computed(() => {
 .tile {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 5.4%;
-  height: 6.6%;
-  min-width: 30px;
-  min-height: 34px;
+  width: 9.4%;
+  height: 10.6%;
+  min-width: 58px;
+  min-height: 62px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.5px;
-  border: 2px solid var(--ink);
-  border-radius: 5px;
-  padding: 1px;
+  gap: 2px;
+  border: 2.5px solid var(--ink);
+  border-radius: 7px;
+  padding: 2px;
   user-select: none;
   cursor: default;
   text-align: center;
-  box-shadow: 1.5px 1.5px 0 0 rgba(26, 26, 26, 0.8);
+  box-shadow: 2.5px 2.5px 0 0 rgba(26, 26, 26, 0.85);
 }
 
 .tile--sel {
   cursor: pointer;
-  outline: 3px solid var(--pop-yellow);
-  outline-offset: 1px;
+  outline: 4px solid var(--pop-yellow);
+  outline-offset: 2px;
   animation: pulse 0.9s ease-in-out infinite;
   z-index: 5;
 }
 
 @keyframes pulse {
-  0%, 100% { outline-width: 3px; }
-  50% { outline-width: 6px; }
+  0%, 100% { outline-width: 4px; }
+  50% { outline-width: 7px; }
 }
 
 .tile--up {
   cursor: pointer;
-  outline: 3px solid var(--pop-red);
-  outline-offset: 1px;
+  outline: 4px solid var(--pop-red);
+  outline-offset: 2px;
   z-index: 5;
 }
 
 .tile__mark {
-  font-size: 10px;
+  font-size: clamp(11px, 1.7cqw, 22px);
   font-weight: 900;
   line-height: 1;
 }
 
 .tile__name {
-  font-size: 8px;
+  font-size: clamp(10px, 1.5cqw, 20px);
   font-weight: 900;
-  line-height: 1;
+  line-height: 1.05;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -226,7 +215,7 @@ const diceText = computed(() => {
 }
 
 .tile__price {
-  font-size: 7px;
+  font-size: clamp(8px, 1.15cqw, 15px);
   font-weight: 900;
   opacity: 0.95;
   line-height: 1;
@@ -234,120 +223,70 @@ const diceText = computed(() => {
 
 .tile__closed {
   position: absolute;
-  top: -5px;
-  right: -5px;
-  font-size: 11px;
+  top: -6px;
+  right: -6px;
+  font-size: 14px;
 }
 
 .tile__shop {
   position: absolute;
-  top: 1px;
-  left: 1px;
-  font-size: 10px;
+  top: 2px;
+  left: 2px;
+  font-size: 12px;
   line-height: 1;
 }
 
 .tile__owner {
   position: absolute;
-  bottom: 1px;
-  right: 1px;
-  width: 5px;
-  height: 5px;
+  bottom: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  border: 1px solid var(--ink);
+  border: 1.5px solid var(--ink);
 }
 
 .tile__items {
   position: absolute;
-  bottom: 1px;
-  left: 1px;
+  bottom: 2px;
+  left: 2px;
   display: flex;
-  gap: 1px;
-  font-size: 9px;
+  gap: 2px;
+  font-size: 11px;
 }
 
 .tile__pawns {
   position: absolute;
-  top: 1px;
-  right: 1px;
+  top: 2px;
+  right: 2px;
   display: flex;
-  gap: 1.5px;
+  gap: 2px;
   flex-wrap: wrap;
-  max-width: 85%;
+  max-width: 80%;
 }
 
 .pawn {
   position: relative;
-  width: 8px;
-  height: 8px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
-  border: 1.5px solid var(--ink);
-  box-shadow: 0.5px 0.5px 0 0 rgba(26, 26, 26, 0.7);
+  border: 2px solid var(--ink);
+  box-shadow: 1px 1px 0 0 rgba(26, 26, 26, 0.7);
 }
 
 .pawn__veh {
   position: absolute;
-  top: -7px;
+  top: -9px;
   left: 50%;
   transform: translateX(-50%);
   font-style: normal;
-  font-size: 8px;
+  font-size: 10px;
   line-height: 1;
 }
 
-.board__center {
-  position: absolute;
-  left: 33%;
-  top: 31%;
-  width: 34%;
-  height: 38%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  text-align: center;
-  border: 4px solid var(--ink);
-  border-radius: 12px;
-  background: #fffef0;
-  box-shadow: 4px 4px 0 0 var(--ink);
-}
-
-.board__logo {
-  font-size: 15px;
-  font-weight: 900;
-  letter-spacing: 0.03em;
-  line-height: 1.1;
-  background: var(--pop-yellow);
-  border: 3px solid var(--ink);
-  border-radius: 7px;
-  padding: 3px 10px;
-  transform: rotate(-2deg);
-}
-
-.board__info {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  font-size: 10px;
-  font-weight: 900;
-}
-
-.board__who b {
-  color: var(--pop-red);
-}
-
-.board__dice {
-  font-size: 13px;
-  letter-spacing: 0.08em;
-}
-
-@media (max-width: 520px) {
+@media (max-width: 560px) {
   .board {
-    min-width: 480px;
-  }
-  .board-wrap {
-    overflow-x: auto;
+    min-width: 520px;
   }
 }
 </style>
