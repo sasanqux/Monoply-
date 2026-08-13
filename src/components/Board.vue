@@ -46,30 +46,21 @@ function isRiverBank(t) {
 }
 
 function tileBg(t) {
+  // 纯颜色区分：普通地产=白 / 桥=蓝 / 轻轨=绿 / 商圈=紫 / 起点=红 / 事件=黄
   switch (t.type) {
     case 'start': return '#ef4444'
-    case 'metro': return '#facc15'
-    case 'bridge': return '#1d4ed8'
-    case 'land': return t.group ? GROUPS[t.group].color : '#ffffff'
-    case 'event': return '#ffffff'
+    case 'bridge': return '#3b82f6'
+    case 'metro': return '#22c55e'
+    case 'land': return t.group ? '#8b5cf6' : '#ffffff'
+    case 'event': return '#facc15'
     default: return '#ffffff'
   }
 }
 
 function tileFg(t) {
   if (t.type === 'land' && !t.group) return '#1a1a1a'
-  if (t.type === 'event' || t.type === 'metro') return '#1a1a1a'
+  if (t.type === 'event') return '#1a1a1a'
   return '#ffffff'
-}
-
-function tileMark(t) {
-  switch (t.type) {
-    case 'start': return 'GO'
-    case 'metro': return '🚈'
-    case 'bridge': return '🌉'
-    case 'event': return t.id === 42 ? '🍲' : '?'
-    default: return ''
-  }
 }
 
 function ownerOf(id) {
@@ -159,7 +150,6 @@ function onTile(t) {
     >
       <span class="tile__num">{{ t.id }}</span>
       <span v-if="isRiverBank(t)" class="tile__bank-mark">🌊</span>
-      <span v-if="tileMark(t)" class="tile__mark">{{ tileMark(t) }}</span>
       <span class="tile__name">{{ t.name }}</span>
 
       <span v-if="isClosed(t.id)" class="tile__closed">🚧</span>
@@ -276,15 +266,8 @@ function onTile(t) {
   transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
-.tile__mark {
-  font-size: clamp(10px, 1.3cqw, 17px);
-  font-weight: 900;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
 .tile__name {
-  font-size: clamp(9px, 1.2cqw, 16px);
+  font-size: clamp(9.5px, 1.35cqw, 17px);
   font-weight: 900;
   line-height: 1.1;
   flex: 1;

@@ -70,6 +70,15 @@ const statusText = computed(() => {
     </div>
 
     <p v-else class="actions__wait">等待电脑对手行动…</p>
+
+    <div class="legend">
+      <span class="legend__item"><i style="background:#ffffff"></i>普通</span>
+      <span class="legend__item"><i style="background:#3b82f6"></i>桥</span>
+      <span class="legend__item"><i style="background:#22c55e"></i>轻轨</span>
+      <span class="legend__item"><i style="background:#8b5cf6"></i>商圈</span>
+      <span class="legend__item"><i style="background:#ef4444"></i>起点</span>
+      <span class="legend__item"><i style="background:#facc15"></i>事件</span>
+    </div>
   </section>
 </template>
 
@@ -121,5 +130,30 @@ const statusText = computed(() => {
   font-weight: 900;
   opacity: 0.65;
   font-style: italic;
+}
+
+.legend {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  width: 100%;
+  padding-top: 8px;
+  border-top: 2px dashed var(--ink);
+}
+
+.legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.legend__item i {
+  width: 14px;
+  height: 10px;
+  border: 2px solid var(--ink);
+  border-radius: 3px;
 }
 </style>
