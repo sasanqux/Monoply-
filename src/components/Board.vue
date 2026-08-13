@@ -1,38 +1,62 @@
 <script setup>
 import { computed } from 'vue'
-import { TILES, GROUPS, isPropertyTile } from '../game/index.js'
+import { TILES, RIVERS, GROUPS, isPropertyTile, isBridge, VEHICLES } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
   current: Object,
+  selectable: { type: Array, default: () => [] },
 })
-const emit = defineEmits(['upgrade'])
+const emit = defineEmits(['tileClick', 'upgrade'])
 
-// 24 格顺时针铺在 7×7 外圈（row, col）
-const SLOT = {
-  0: [0, 0], 1: [0, 1], 2: [0, 2], 3: [0, 3], 4: [0, 4], 5: [0, 5], 6: [0, 6],
-  7: [1, 6], 8: [2, 6], 9: [3, 6], 10: [4, 6], 11: [5, 6], 12: [6, 6],
-  13: [6, 5], 14: [6, 4], 15: [6, 3], 16: [6, 2], 17: [6, 1], 18: [6, 0],
-  19: [5, 0], 20: [4, 0], 21: [3, 0], 22: [2, 0], 23: [1, 0],
+// 相邻格连线（蜿蜒路径可视化）
+const pathLine = computed(() => {
+  return TILES.map((t) => `${t.x},${t.y}`).join(' ')
+})
+
+function tileStyle(t) {
+  return { left: t.x + '%', top: t.y + '%' }
 }
 
-const cells = TILES.map((tile, id) => ({ tile, id, rc: SLOT[id] }))
-
-function tileBg(tile) {
-  if (tile.type === 'start') return 'var(--red)'
-  if (isPropertyTile(tile)) return GROUPS[tile.group].color
-  if (tile.type === 'tax') return 'var(--black)'
-  if (tile.type === 'jail' || tile.type === 'hospital') return 'var(--gray-700)'
-  return 'var(--white)' // event
+function tileBg(t) {
+  switch (t.type) {
+    case 'start': return '#ef4444'
+    case 'street': return GROUPS.A.color
+    case 'plaza': return GROUPS.B.color
+    case 'bridge': return '#facc15'
+    case 'tax': return '#1a1a1a'
+    case 'card': return '#ffffff'
+    case 'item': return '#ffffff'
+    case 'vehicle': return '#a855f7'
+    case 'event': return '#ffffff'
+    case 'jail': return '#475569'
+    case 'hospital': return '#f87171'
+    case 'workshop': return '#f97316'
+    default: return '#ffffff'
+  }
 }
 
-function tileColor(tile) {
-  if (tile.type === 'event') return 'var(--black)'
-  return 'var(--white)'
+function tileFg(t) {
+  if (t.type === 'event' || t.type === 'card' || t.type === 'item' || t.type === 'bridge') return '#1a1a1a'
+  return '#ffffff'
 }
 
-function tileBorder(tile) {
-  return tile.type === 'event' ? '2px solid var(--black)' : 'none'
+function tileMark(t) {
+  switch (t.type) {
+    case 'start': return 'GO'
+    case 'street': return '街'
+    case 'plaza': return '圈'
+    case 'bridge': return '🌉'
+    case 'tax': return '税'
+    case 'card': return '🎴'
+    case 'item': return '🎁'
+    case 'vehicle': return '🚗'
+    case 'event': return '?'
+    case 'jail': return '⛓️'
+    case 'hospital': return '🏥'
+    case 'workshop': return '🔧'
+    default: return ''
+  }
 }
 
 function ownerOf(id) {
@@ -48,218 +72,343 @@ function playersOn(id) {
   return props.state.players.filter((p) => p.alive && p.pos === id)
 }
 
-// 我的地且可升级 → 可点击盖楼
+function itemsOn(id) {
+  return props.state.boardItems.filter((b) => b.tileId === id)
+}
+
+function isClosed(id) {
+  return (props.state.closedBridges[id] ?? 0) > 0
+}
+
 function upgradable(id) {
   const p = props.current
   if (!p || p.isAI) return false
-  if (!p.properties.includes(id)) return false
+  if (!isPropertyTile(TILES[id]) || !p.properties.includes(id)) return false
   const level = p.levels[id] ?? 0
-  if (level >= 3) return false
-  return true
+  return level < 3
+}
+
+function onTile(t) {
+  if (props.selectable.includes(t.id)) {
+    emit('tileClick', t.id)
+  } else if (upgradable(t.id)) {
+    emit('upgrade', t.id)
+  }
 }
 
 const diceText = computed(() => {
   if (!props.state.dice) return '—'
-  return `${props.state.dice[0]} ${props.state.dice[1]}`
+  return props.state.dice.join(' + ')
+})
+
+const curVehicle = computed(() => {
+  const c = props.current
+  return c ? VEHICLES[c.vehicle] : null
 })
 </script>
 
 <template>
   <div class="board">
+    <svg class="board__rivers" viewBox="0 0 100 92" preserveAspectRatio="none" aria-hidden="true">
+      <path v-for="r in RIVERS" :key="r.name" :d="r.d" fill="none" stroke="#3b82f6" stroke-width="3.2" stroke-linecap="round" opacity="0.55" />
+      <polyline :points="pathLine" fill="none" stroke="#1a1a1a" stroke-width="0.5" stroke-dasharray="1.5 1.5" opacity="0.25" />
+    </svg>
+
     <div
-      v-for="cell in cells"
-      :key="cell.id"
+      v-for="t in TILES"
+      :key="t.id"
       class="tile"
-      :class="{ 'tile--click': upgradable(cell.id) }"
-      :style="{
-        gridColumn: cell.rc[1] + 1,
-        gridRow: cell.rc[0] + 1,
-        background: tileBg(cell.tile),
-        color: tileColor(cell.tile),
-        border: tileBorder(cell.tile),
+      :class="{
+        'tile--sel': selectable.includes(t.id),
+        'tile--up': upgradable(t.id),
+        'tile--bridge': isBridge(t),
       }"
-      :title="cell.tile.name + (ownerOf(cell.id) ? ' · 拥有者 ' + ownerOf(cell.id).name : '')"
-      @click="upgradable(cell.id) && emit('upgrade', cell.id)"
+      :style="{ ...tileStyle(t), background: tileBg(t), color: tileFg(t) }"
+      :title="t.name + (ownerOf(t.id) ? ' · 拥有者 ' + ownerOf(t.id).name : '')"
+      @click="onTile(t)"
     >
-      <span v-if="cell.tile.type === 'event'" class="tile__q">?</span>
-      <span v-else-if="cell.tile.type === 'jail'" class="tile__q">🚔</span>
-      <span v-else-if="cell.tile.type === 'hospital'" class="tile__q">🏥</span>
-      <span v-else-if="cell.tile.type === 'start'" class="tile__q">GO</span>
-      <span v-else-if="cell.tile.type === 'tax'" class="tile__q">税</span>
-      <span v-else-if="isPropertyTile(cell.tile)" class="tile__q">{{ cell.tile.type === 'street' ? '街' : cell.tile.type === 'plaza' ? '圈' : '楼' }}</span>
+      <span class="tile__mark">{{ tileMark(t) }}</span>
+      <span class="tile__name">{{ t.name }}</span>
+      <span v-if="isPropertyTile(t)" class="tile__price">¥{{ t.price }}</span>
+      <span v-else-if="isBridge(t)" class="tile__price">{{ isClosed(t.id) ? '封桥中' : '过路费 ¥' + t.toll }}</span>
 
-      <span class="tile__name">{{ cell.tile.name }}</span>
-      <span v-if="isPropertyTile(cell.tile)" class="tile__price">¥{{ cell.tile.price }}</span>
+      <span v-if="isBridge(t) && ownerOf(t.id)" class="tile__bridge-owner" :style="{ background: ownerOf(t.id).color }"></span>
+      <span v-if="isClosed(t.id)" class="tile__closed">🚧</span>
 
-      <span v-if="isPropertyTile(cell.tile) && ownerOf(cell.id)" class="tile__lv">
-        <i v-for="n in 3" :key="n" :class="{ on: n <= levelOf(cell.id) }"></i>
+      <span v-if="isPropertyTile(t) && ownerOf(t.id)" class="tile__lv">
+        <i v-for="n in 3" :key="n" :class="{ on: n <= levelOf(t.id) }"></i>
+      </span>
+
+      <span class="tile__items">
+        <i v-for="b in itemsOn(t.id)" :key="b.id" class="tile__item-icon" :title="b.type">{{ b.type === 'barrier' ? '🚧' : b.type === 'mine' ? '💣' : '🧨' }}</i>
       </span>
 
       <span class="tile__pawns">
-        <i v-for="p in playersOn(cell.id)" :key="p.id" class="pawn" :style="{ background: p.color }"></i>
+        <i v-for="p in playersOn(t.id)" :key="p.id" class="pawn" :style="{ background: p.color }">
+          <em v-if="p.vehicle !== 'walk'" class="pawn__veh">{{ VEHICLES[p.vehicle].icon }}</em>
+        </i>
       </span>
     </div>
 
     <div class="board__center">
-      <div class="board__logo">都市大富翁</div>
+      <div class="board__logo">重庆<br />大富翁</div>
       <div class="board__info">
-        <span class="board__turn">第 {{ state.round }} 回合</span>
-        <span class="board__who">轮到你：<b>{{ current ? current.name : '—' }}</b></span>
+        <span>第 {{ state.round }} 回合</span>
+        <span class="board__who">轮到 <b>{{ current ? current.name : '—' }}</b></span>
+        <span v-if="current" class="board__veh">{{ curVehicle.icon }} {{ curVehicle.name }} · {{ curVehicle.dice }} 骰</span>
         <span class="board__dice">🎲 {{ diceText }}</span>
       </div>
-      <div class="board__hint">点击自己的地 → 盖楼升级</div>
+      <p class="board__hint">🌉 过江走桥 · 桥能买 · 点自己的地盖楼</p>
     </div>
   </div>
 </template>
 
 <style scoped>
 .board {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  grid-template-rows: repeat(7, 1fr);
-  gap: 3px;
+  position: relative;
   width: 100%;
-  max-width: 620px;
+  max-width: 660px;
   margin: 0 auto;
-  background: var(--grid);
-  padding: 3px;
-  border: 2px solid var(--black);
-  aspect-ratio: 1;
+  aspect-ratio: 100 / 92;
+  border: 4px solid var(--ink);
+  border-radius: 10px;
+  background: #fffef0;
+  overflow: hidden;
+  box-shadow: 6px 6px 0 0 var(--ink);
+}
+
+.board__rivers {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
 .tile {
-  position: relative;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 8.8%;
+  height: 9.6%;
+  min-width: 44px;
+  min-height: 46px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 1px;
-  min-width: 0;
-  overflow: hidden;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
   padding: 2px;
   user-select: none;
+  cursor: default;
+  text-align: center;
+  box-shadow: 2px 2px 0 0 rgba(26, 26, 26, 0.85);
 }
 
-.tile--click {
+.tile--sel {
   cursor: pointer;
-  outline: 2px solid var(--red);
-  outline-offset: -2px;
+  outline: 3px solid var(--pop-yellow);
+  outline-offset: 2px;
+  animation: pulse 0.9s ease-in-out infinite;
 }
 
-.tile__q {
-  font-size: 13px;
-  font-weight: 500;
+@keyframes pulse {
+  0%, 100% { outline-width: 3px; }
+  50% { outline-width: 6px; }
+}
+
+.tile--up {
+  cursor: pointer;
+  outline: 3px solid var(--pop-red);
+  outline-offset: 2px;
+}
+
+.tile--bridge {
+  box-shadow: 0 0 0 2px var(--pop-yellow), 2px 2px 0 0 var(--ink);
+}
+
+.tile__mark {
+  font-size: 12px;
+  font-weight: 900;
   line-height: 1;
 }
 
 .tile__name {
-  font-size: 11px;
-  line-height: 1.1;
-  text-align: center;
-  white-space: nowrap;
+  font-size: 9.5px;
+  font-weight: 900;
+  line-height: 1.05;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
+  white-space: nowrap;
 }
 
 .tile__price {
-  font-size: 10px;
-  opacity: 0.9;
+  font-size: 8.5px;
+  font-weight: 900;
+  opacity: 0.95;
+}
+
+.tile__bridge-owner {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--ink);
+}
+
+.tile__closed {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  font-size: 14px;
 }
 
 .tile__lv {
-  display: flex;
-  gap: 2px;
   position: absolute;
-  top: 2px;
-  right: 3px;
+  bottom: 2px;
+  right: 2px;
+  display: flex;
+  gap: 1.5px;
 }
 
 .tile__lv i {
-  width: 4px;
-  height: 4px;
+  width: 3.5px;
+  height: 3.5px;
   background: rgba(255, 255, 255, 0.35);
+  border-radius: 1px;
 }
 
 .tile__lv i.on {
-  background: var(--white);
+  background: var(--pop-yellow);
 }
 
-.tile__pawns {
+.tile__items {
   position: absolute;
   bottom: 2px;
   left: 2px;
   display: flex;
   gap: 2px;
+}
+
+.tile__item-icon {
+  font-style: normal;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.tile__pawns {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  display: flex;
+  gap: 2px;
   flex-wrap: wrap;
+  max-width: 90%;
 }
 
 .pawn {
-  width: 9px;
-  height: 9px;
+  position: relative;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  border: 1.5px solid var(--white);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  border: 2px solid var(--ink);
+  box-shadow: 1px 1px 0 0 rgba(26, 26, 26, 0.7);
+}
+
+.pawn__veh {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-style: normal;
+  font-size: 10px;
+  line-height: 1;
 }
 
 .board__center {
-  grid-column: 2 / 7;
-  grid-row: 2 / 7;
-  background: var(--white);
-  border: 2px solid var(--black);
+  position: absolute;
+  left: 24%;
+  top: 24%;
+  width: 52%;
+  height: 52%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   text-align: center;
-  padding: var(--space-2);
+  border: 4px solid var(--ink);
+  border-radius: 12px;
+  background: #fffef0;
+  box-shadow: 5px 5px 0 0 var(--ink);
 }
 
 .board__logo {
-  font-size: 22px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  border-bottom: 4px solid var(--red);
-  padding-bottom: 4px;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  background: var(--pop-yellow);
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  padding: 4px 14px;
+  transform: rotate(-2deg);
 }
 
 .board__info {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
-  color: var(--gray-700);
+  gap: 2px;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .board__who b {
-  color: var(--red);
-  font-weight: 500;
+  color: var(--pop-red);
+}
+
+.board__veh {
+  font-size: 12px;
 }
 
 .board__dice {
-  font-size: 18px;
-  font-weight: 500;
-  letter-spacing: 0.2em;
+  font-size: 16px;
+  letter-spacing: 0.1em;
 }
 
 .board__hint {
-  font-size: 11px;
-  color: var(--gray-500);
+  font-size: 10px;
+  color: var(--ink);
+  opacity: 0.75;
 }
 
 @media (max-width: 480px) {
-  .tile__name {
-    font-size: 9px;
+  .tile {
+    min-width: 0;
+    min-height: 0;
   }
-  .tile__price {
+  .tile__name {
     font-size: 8px;
   }
-  .tile__q {
+  .tile__mark {
     font-size: 10px;
   }
+  .tile__price {
+    font-size: 7px;
+  }
+  .pawn {
+    width: 9px;
+    height: 9px;
+  }
   .board__logo {
-    font-size: 16px;
+    font-size: 14px;
+  }
+  .board__center {
+    gap: 4px;
   }
 }
 </style>

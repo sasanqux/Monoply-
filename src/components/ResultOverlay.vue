@@ -17,13 +17,15 @@ const winner = computed(() => props.state.players.find((p) => p.id === props.sta
 </script>
 
 <template>
-  <div class="overlay">
-    <div class="card">
-      <h2 class="card__title">游戏结束</h2>
-      <p class="card__winner">
+  <div class="overlay-layer">
+    <div class="card-comic card-comic--pad-lg result">
+      <h2 class="comic-title comic-title--xl"><span class="comic-stripe">游戏结束</span></h2>
+      <p class="result__winner">
         🏆 <b>{{ winner?.name }}</b> 获胜！
       </p>
-      <p class="card__reason">{{ state.settings.maxTurns ? `第 ${state.round} 回合触发回合上限，按总资产结算` : '其他玩家全部破产，成为最后赢家' }}</p>
+      <p class="result__reason">
+        {{ state.settings.maxTurns ? `第 ${state.round} 回合触发回合上限，按总资产结算` : '其他玩家全部破产，成为最后赢家' }}
+      </p>
 
       <ol class="rank">
         <li v-for="r in ranking" :key="r.id" class="rank__row" :class="{ 'rank__row--win': r.id === winner?.id }">
@@ -34,57 +36,46 @@ const winner = computed(() => props.state.players.find((p) => p.id === props.sta
         </li>
       </ol>
 
-      <div class="card__btns">
-        <button class="btn btn--red" @click="emit('again')">再来一局</button>
+      <div class="result__btns">
+        <button class="btn-comic" @click="emit('again')">再来一局</button>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.overlay {
+.overlay-layer {
   position: fixed;
   inset: 0;
-  background: rgba(17, 17, 17, 0.72);
+  background: rgba(26, 26, 26, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 50;
-  padding: var(--space-3);
+  padding: 16px;
 }
 
-.card {
-  background: var(--white);
-  border: 4px solid var(--black);
-  padding: var(--space-4);
+.result {
   width: 100%;
   max-width: 420px;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 12px;
 }
 
-.card__title {
-  font-size: 22px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  border-bottom: 4px solid var(--red);
-  padding-bottom: 8px;
+.result__winner {
+  font-size: 19px;
+  font-weight: 900;
 }
 
-.card__winner {
-  font-size: 18px;
+.result__winner b {
+  color: var(--pop-red);
 }
 
-.card__winner b {
-  color: var(--red);
-  font-weight: 500;
-}
-
-.card__reason {
+.result__reason {
   font-size: 12px;
-  color: var(--gray-500);
+  font-weight: 900;
+  opacity: 0.65;
 }
 
 .rank {
@@ -92,7 +83,7 @@ const winner = computed(() => props.state.players.find((p) => p.id === props.sta
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin: var(--space-1) 0;
+  margin: 6px 0;
 }
 
 .rank__row {
@@ -100,51 +91,56 @@ const winner = computed(() => props.state.players.find((p) => p.id === props.sta
   align-items: center;
   gap: 10px;
   padding: 8px;
-  border: 1px solid var(--grid);
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: #fff;
 }
 
 .rank__row--win {
-  border-color: var(--red);
-  border-width: 2px;
+  background: #fff3c4;
+  box-shadow: 3px 3px 0 0 var(--ink);
 }
 
 .rank__no {
   width: 20px;
   font-size: 13px;
-  font-weight: 500;
-  color: var(--gray-500);
+  font-weight: 900;
+  opacity: 0.55;
 }
 
 .rank__dot {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 1px solid var(--gray-300);
+  border: 2px solid var(--ink);
 }
 
 .rank__name {
   flex: 1;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 900;
 }
 
 .rank__name em {
   font-style: normal;
-  font-size: 10px;
-  color: var(--red);
-  border: 1px solid var(--red);
-  padding: 0 3px;
+  font-size: 9px;
+  color: #fff;
+  background: var(--pop-red);
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  padding: 0 4px;
   margin-left: 4px;
 }
 
 .rank__assets {
   font-size: 13px;
+  font-weight: 900;
   font-variant-numeric: tabular-nums;
 }
 
-.card__btns {
+.result__btns {
   display: flex;
   justify-content: flex-end;
-  margin-top: var(--space-1);
+  margin-top: 4px;
 }
 </style>

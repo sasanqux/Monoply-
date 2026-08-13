@@ -1,11 +1,13 @@
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, computed } from 'vue'
 import SetupPanel from './components/SetupPanel.vue'
 import Board from './components/Board.vue'
 import ActionPanel from './components/ActionPanel.vue'
 import SidePanel from './components/SidePanel.vue'
+import HandPanel from './components/HandPanel.vue'
+import ItemPanel from './components/ItemPanel.vue'
 import ResultOverlay from './components/ResultOverlay.vue'
-import { createInitialState, gameReducer, aiDecide, currentPlayer } from './game/index.js'
+import { createInitialState, gameReducer, aiDecide, currentPlayer, TILES, isPropertyTile, isBridge, cardTargetKind } from './game/index.js'
 
 const AI_NAMES = ['阿蓝', '阿绿', '阿橙', '阿紫', '阿粉', '阿灰', '阿黑']
 
@@ -13,21 +15,18 @@ const state = ref(null)
 const lastOpts = ref(null)
 let aiTimer = null
 
+// 卡牌/道具目标选择模式
+const selecting = ref(null) // { type:'card'|'item', id, mode:'tile'|'player'|'swap', swapStep, myTile }
+const dicePicker = ref(false)
+const remoteValue = ref(7)
+
 function startGame(opts) {
   lastOpts.value = { ...opts }
   const players = []
   for (let i = 0; i < opts.players; i++) {
-    players.push({
-      id: 'p' + (i + 1),
-      name: i === 0 ? '我' : AI_NAMES[i - 1],
-      isAI: i !== 0,
-    })
+    players.push({ id: 'p' + (i + 1), name: i === 0 ? '我' : AI_NAMES[i - 1], isAI: i !== 0 })
   }
-  state.value = createInitialState({
-    players,
-    maxTurns: opts.maxTurns,
-    startMoney: opts.startMoney,
-  })
+  state.value = createInitialState({ players, maxTurns: opts.maxTurns, startMoney: opts.startMoney })
   scheduleAI()
 }
 
@@ -37,7 +36,6 @@ function dispatch(action) {
   scheduleAI()
 }
 
-// 若轮到 AI，自动决策（掷骰慢一点有节奏感，其他快一点）
 function scheduleAI() {
   const st = state.value
   if (!st || st.status !== 'playing') return
@@ -53,13 +51,151 @@ function scheduleAI() {
 
 const cur = computed(() => (state.value ? currentPlayer(state.value) : null))
 const isMyTurn = computed(() => cur.value && !cur.value.isAI)
+
+// ===== 选择模式 =====
+const selectableTiles = computed(() => {
+  const st = state.value
+  if (!st || !selecting.value) return []
+  const me = currentPlayer(st)
+  if (selecting.value.type === 'card') {
+    const card = me.hand.find((c) => c.id === selecting.value.id)
+    if (!card) return []
+    switch (card.type) {
+      case 'buy':
+        return TILES.filter((t) => isPropertyTile(t) && !st.players.some((p) => p.alive && p.properties.includes(t.id))).map((t) => t.id)
+      case 'demolish':
+        return TILES.filter((t) => st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id) && (p.levels[t.id] ?? 0) >= 1)).map((t) => t.id)
+      case 'monster':
+        return TILES.filter((t) => st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id))).map((t) => t.id)
+      case 'nuke':
+        return TILES.filter((t) => st.players.some((p) => p.alive && p.properties.includes(t.id))).map((t) => t.id)
+      case 'closeBridge':
+        return TILES.filter((t) => isBridge(t) && !(st.closedBridges[t.id] > 0)).map((t) => t.id)
+      case 'swap':
+        if (selecting.value.swapStep === 1) return me.properties.filter((i) => isPropertyTile(TILES[i]))
+        return TILES.filter((t) => st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id))).map((t) => t.id)
+      default:
+        return []
+    }
+  }
+  if (selecting.value.type === 'item') {
+    const item = me.items.find((it) => it.id === selecting.value.id)
+    if (!item) return []
+    if (item.type === 'barrier' || item.type === 'mine' || item.type === 'bomb' || item.type === 'portal') {
+      return TILES.map((t) => t.id)
+    }
+  }
+  return []
+})
+
+const selectablePlayers = computed(() => {
+  const st = state.value
+  if (!st || !selecting.value) return []
+  const me = currentPlayer(st)
+  if (selecting.value.type === 'card') {
+    const card = me.hand.find((c) => c.id === selecting.value.id)
+    if (!card) return []
+    if (card.type === 'frame' || card.type === 'hold') {
+      return st.players.filter((p) => p.alive && p.id !== me.id).map((p) => p.id)
+    }
+    if (card.type === 'transfer') {
+      return st.players.filter((p) => p.alive && p.id !== me.id).map((p) => p.id)
+    }
+  }
+  return []
+})
+
+function onTileClick(tileId) {
+  if (!selecting.value) return
+  const sel = selecting.value
+  if (sel.type === 'card') {
+    if (sel.mode === 'swap' && sel.swapStep === 1) {
+      selecting.value = { ...sel, swapStep: 2, myTile: tileId }
+      return
+    }
+    const target =
+      sel.mode === 'swap'
+        ? { myTile: sel.myTile, theirTile: tileId }
+        : { tileId }
+    dispatch({ type: 'USE_CARD', cardId: sel.id, target })
+  } else if (sel.type === 'item') {
+    dispatch({ type: 'USE_ITEM', itemId: sel.id, tileId })
+  }
+  selecting.value = null
+}
+
+function onPlayerClick(playerId) {
+  if (!selecting.value) return
+  const sel = selecting.value
+  if (sel.type === 'card') {
+    dispatch({ type: 'USE_CARD', cardId: sel.id, target: { playerId } })
+  }
+  selecting.value = null
+}
+
+// 手牌/道具点击
+function useCard(card) {
+  if (!isMyTurn.value) return
+  const kind = cardTargetKind(card.type)
+  if (kind === 'none') {
+    dispatch({ type: 'USE_CARD', cardId: card.id })
+    return
+  }
+  if (kind === 'tile') {
+    selecting.value = { type: 'card', id: card.id, mode: 'tile' }
+    return
+  }
+  if (kind === 'swap') {
+    selecting.value = { type: 'card', id: card.id, mode: 'swap', swapStep: 1 }
+    return
+  }
+  if (kind === 'player') {
+    selecting.value = { type: 'card', id: card.id, mode: 'player' }
+  }
+}
+
+function useItem(item) {
+  if (!isMyTurn.value) return
+  if (item.type === 'remoteDice') {
+    remoteValue.value = 7
+    dicePicker.value = true
+    return
+  }
+  selecting.value = { type: 'item', id: item.id }
+}
+
+function confirmRemoteDice() {
+  const me = currentPlayer(state.value)
+  const it = me.items.find((i) => i.type === 'remoteDice')
+  if (it) dispatch({ type: 'USE_ITEM', itemId: it.id, value: remoteValue.value })
+  dicePicker.value = false
+}
+
+function cancelSelect() {
+  selecting.value = null
+  dicePicker.value = false
+}
+
+const selectHint = computed(() => {
+  const sel = selecting.value
+  if (!sel) return ''
+  if (sel.type === 'card') {
+    if (sel.mode === 'swap' && sel.swapStep === 1) return '点一块自己的地（用于交换）'
+    if (sel.mode === 'swap') return '点一块对方的地（换过去）'
+    if (sel.mode === 'player') return '选一个目标玩家'
+    return '选一个目标格子'
+  }
+  return '选一个放置/传送的格子'
+})
 </script>
 
 <template>
-  <div class="app">
+  <div class="app halftone">
     <header class="app__head">
-      <h1 class="app__title">都市大富翁</h1>
-      <span class="app__sub">MONOPOLY · 单机试玩版</span>
+      <h1 class="comic-title comic-title--xl">
+        <span class="comic-stripe">重庆大富翁</span>
+      </h1>
+      <span class="tag-comic tag-comic--red">两江 · 桥 · 卡牌</span>
     </header>
 
     <SetupPanel v-if="!state" @start="startGame" />
@@ -67,16 +203,44 @@ const isMyTurn = computed(() => cur.value && !cur.value.isAI)
     <template v-else>
       <div class="app__game">
         <main class="app__board">
-          <Board :state="state" :current="cur" @upgrade="(id) => dispatch({ type: 'UPGRADE_PROPERTY', tileId: id })" />
+          <div v-if="selecting" class="select-bar bubble">
+            <span class="select-bar__text">👉 {{ selectHint }}</span>
+            <button class="btn-comic btn-comic--sm btn-comic--ghost" @click="cancelSelect">取消</button>
+          </div>
+          <Board
+            :state="state"
+            :current="cur"
+            :selectable="selectableTiles"
+            @tile-click="onTileClick"
+            @upgrade="(id) => dispatch({ type: 'UPGRADE_PROPERTY', tileId: id })"
+          />
           <ActionPanel :state="state" :current="cur" :is-my-turn="isMyTurn" @dispatch="dispatch" />
         </main>
-        <SidePanel :state="state" :current="cur" />
+
+        <SidePanel :state="state" :current="cur" :selectable-players="selectablePlayers" @player-click="onPlayerClick" />
+      </div>
+
+      <div v-if="isMyTurn" class="app__bags">
+        <HandPanel :me="cur" :selecting="selecting" @use-card="useCard" />
+        <ItemPanel :me="cur" @use-item="useItem" />
+      </div>
+
+      <!-- 遥控骰子点数选择 -->
+      <div v-if="dicePicker" class="overlay-layer" @click.self="dicePicker = false">
+        <div class="card-comic card-comic--pad-lg dice-panel">
+          <h3 class="comic-title comic-title--md">🎲 遥控骰子 · 选点数</h3>
+          <input v-model.number="remoteValue" class="input-comic" type="number" min="2" max="12" />
+          <div class="dice-panel__btns">
+            <button class="btn-comic" @click="confirmRemoteDice">确定</button>
+            <button class="btn-comic btn-comic--ghost" @click="dicePicker = false">取消</button>
+          </div>
+        </div>
       </div>
 
       <ResultOverlay v-if="state.status === 'finished'" :state="state" @again="startGame(lastOpts)" />
     </template>
 
-    <footer class="app__foot">瑞士国际主义 · 桌游风 · M0 试玩版</footer>
+    <footer class="app__foot">重庆大富翁 · Comic Style · M0+ 版</footer>
   </div>
 </template>
 
@@ -91,24 +255,9 @@ const isMyTurn = computed(() => cur.value && !cur.value.isAI)
 
 .app__head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-2);
-  border-bottom: 4px solid var(--black);
-  padding-bottom: var(--space-2);
-}
-
-.app__title {
-  font-size: 26px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-}
-
-.app__sub {
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--red);
+  flex-wrap: wrap;
 }
 
 .app__game {
@@ -121,17 +270,59 @@ const isMyTurn = computed(() => cur.value && !cur.value.isAI)
 .app__board {
   display: flex;
   flex-direction: column;
+  gap: var(--space-2);
+}
+
+.select-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  background: #fff;
+}
+
+.select-bar__text {
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.app__bags {
+  display: flex;
   gap: var(--space-3);
+  flex-wrap: wrap;
 }
 
 .app__foot {
   margin-top: auto;
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--grid);
+  padding-top: var(--space-2);
+  border-top: 3px solid var(--ink);
   font-size: 11px;
+  font-weight: 900;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--gray-500);
+}
+
+.overlay-layer {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 26, 26, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 16px;
+}
+
+.dice-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.dice-panel__btns {
+  display: flex;
+  gap: 12px;
 }
 
 @media (max-width: 860px) {

@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { TILES } from '../game/index.js'
+import { TILES, VEHICLES } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
@@ -23,32 +23,37 @@ const statusText = computed(() => {
   const cur = props.current
   if (!cur) return ''
   if (cur.bankrupt) return `${cur.name} 已破产`
-  if (cur.jailLeft > 0) return `🚔 ${cur.name} 在监狱（剩 ${cur.jailLeft} 轮）`
+  if (cur.jailLeft > 0) return `⛓️ ${cur.name} 在拘留所（剩 ${cur.jailLeft} 轮）`
+  if (cur.skipTurns > 0) return `✋ ${cur.name} 被定住`
   if (cur.hospital) return `🏥 ${cur.name} 在医院休养`
   if (!props.isMyTurn) return `🤖 ${cur.name} 思考中…`
-  if (props.state.phase === 'roll') return `🎲 轮到你掷骰`
-  if (pendingTile.value) return `「${pendingTile.value.name}」待购买`
+  if (props.state.phase === 'roll') return `🎲 轮到你掷骰（${VEHICLES[cur.vehicle].name} ${VEHICLES[cur.vehicle].dice} 颗）`
+  if (pendingTile.value) return `「${pendingTile.value.name}」${pendingTile.value.type === 'bridge' ? '（桥）' : ''}待购买`
   return `轮到你行动`
 })
 </script>
 
 <template>
-  <section class="actions">
+  <section class="actions card-comic">
     <p class="actions__status" :class="{ 'actions__status--mine': isMyTurn }">{{ statusText }}</p>
 
     <div v-if="isMyTurn" class="actions__btns">
-      <button v-if="state.phase === 'roll'" class="btn btn--red" @click="emit('dispatch', { type: 'ROLL_DICE' })">
+      <button
+        v-if="state.phase === 'roll'"
+        class="btn-comic"
+        @click="emit('dispatch', { type: 'ROLL_DICE' })"
+      >
         掷骰子
       </button>
 
       <template v-else-if="state.phase === 'landed'">
         <template v-if="pendingTile">
-          <button class="btn" :disabled="!canBuy" @click="emit('dispatch', { type: 'BUY_PROPERTY' })">
+          <button class="btn-comic" :disabled="!canBuy" @click="emit('dispatch', { type: 'BUY_PROPERTY' })">
             购买 ¥{{ pendingTile.price }}
           </button>
-          <button class="btn btn--ghost" @click="emit('dispatch', { type: 'SKIP_BUY' })">放弃</button>
+          <button class="btn-comic btn-comic--ghost" @click="emit('dispatch', { type: 'SKIP_BUY' })">放弃</button>
         </template>
-        <button class="btn" @click="emit('dispatch', { type: 'END_TURN' })">结束回合</button>
+        <button class="btn-comic btn-comic--yellow" @click="emit('dispatch', { type: 'END_TURN' })">结束回合</button>
       </template>
     </div>
 
@@ -61,31 +66,30 @@ const statusText = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
-  border: 2px solid var(--black);
-  padding: var(--space-2);
+  gap: 12px;
   flex-wrap: wrap;
 }
 
 .actions__status {
-  font-size: 14px;
-  font-weight: 500;
-  letter-spacing: 0.03em;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
 }
 
 .actions__status--mine {
-  color: var(--red);
+  color: var(--pop-red);
 }
 
 .actions__btns {
   display: flex;
-  gap: var(--space-1);
+  gap: 10px;
   flex-wrap: wrap;
 }
 
 .actions__wait {
-  font-size: 12px;
-  color: var(--gray-500);
+  font-size: 13px;
+  font-weight: 900;
+  opacity: 0.65;
   font-style: italic;
 }
 </style>
