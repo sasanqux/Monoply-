@@ -161,9 +161,6 @@ function onTile(t) {
       <span v-if="isRiverBank(t)" class="tile__bank-mark">🌊</span>
       <span v-if="tileMark(t)" class="tile__mark">{{ tileMark(t) }}</span>
       <span class="tile__name">{{ t.name }}</span>
-      <span v-if="isPropertyTile(t)" class="tile__price">¥{{ t.price }}</span>
-      <span v-else-if="isBridge(t)" class="tile__price">{{ isClosed(t.id) ? '封' : '¥' + t.toll }}</span>
-      <span v-else-if="isMetro(t)" class="tile__price">¥{{ t.price }}</span>
 
       <span v-if="isClosed(t.id)" class="tile__closed">🚧</span>
 
@@ -287,7 +284,7 @@ function onTile(t) {
 }
 
 .tile__name {
-  font-size: clamp(8.5px, 1.05cqw, 14px);
+  font-size: clamp(9px, 1.2cqw, 16px);
   font-weight: 900;
   line-height: 1.1;
   flex: 1;
@@ -295,14 +292,6 @@ function onTile(t) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.tile__price {
-  font-size: clamp(7px, 0.85cqw, 12px);
-  font-weight: 900;
-  opacity: 0.95;
-  line-height: 1;
-  flex-shrink: 0;
 }
 
 .tile__closed {
