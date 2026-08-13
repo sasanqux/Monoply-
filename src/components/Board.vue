@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { TILES, RIVERS, METRO_LINE, PATH_POLYLINE, GROUPS, tilePosition, isPropertyTile, isBridge, isMetro, SHOPS } from '../game/index.js'
+import { TILES, RIVERS, REGIONS, METRO_STATIONS, PATH_POLYLINE, GROUPS, tilePosition, isPropertyTile, isBridge, isMetro, SHOPS } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
@@ -14,8 +14,20 @@ const tiles = computed(() => TILES.filter(Boolean))
 // 折线路径线（直接从 PATH_POLYLINE 拐点连接）
 const pathLine = computed(() => PATH_POLYLINE)
 
+// 轻轨线：按站坐标动态连线（红土地9 → 李子坝28 → 山城电梯44）
+const metroLine = computed(() => {
+  return METRO_STATIONS.map((id) => {
+    const p = tilePosition(id)
+    return `${p.x},${p.y}`
+  }).join(' ')
+})
+
 function posOf(id) {
   return tilePosition(id)
+}
+
+function isRiverBank(t) {
+  return !!t.riverEdge
 }
 
 function tileBg(t) {
@@ -92,11 +104,17 @@ function onTile(t) {
 <template>
   <div class="board">
     <svg class="board__bg" viewBox="0 0 100 88" preserveAspectRatio="none" aria-hidden="true">
+      <!-- 三大区域底色 -->
+      <path v-for="rg in REGIONS" :key="rg.name" :d="rg.d" fill="currentColor" class="region" :style="{ color: rg.color }" />
       <!-- 两江 -->
-      <path v-for="r in RIVERS" :key="r.name" :d="r.d" fill="none" stroke="#3b82f6" stroke-width="3.4" stroke-linecap="round" opacity="0.55" />
+      <path v-for="r in RIVERS" :key="r.name" :d="r.d" fill="none" stroke="#2563eb" stroke-width="5" stroke-linecap="round" opacity="0.75" />
+      <path v-for="r in RIVERS" :key="r.name + '-border'" :d="r.d" fill="none" stroke="#1e40af" stroke-width="1.4" stroke-dasharray="3 2" opacity="0.6" />
+      <!-- 江名 -->
+      <text class="river-label" x="20" y="22" transform="rotate(-20 20 22)">嘉陵江</text>
+      <text class="river-label" x="46" y="76" transform="rotate(8 46 76)">长 江</text>
       <!-- 轻轨线（立体交通） -->
-      <path :d="METRO_LINE" fill="none" stroke="#a855f7" stroke-width="1.1" stroke-dasharray="2.6 2.2" opacity="0.85" />
-      <!-- 蜿蜒闭环路径线 -->
+      <polyline :points="metroLine" fill="none" stroke="#a855f7" stroke-width="1.3" stroke-dasharray="2.6 2.2" opacity="0.9" />
+      <!-- 折线闭环路径线 -->
       <polyline :points="pathLine" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round" opacity="0.6" />
     </svg>
 
@@ -107,11 +125,13 @@ function onTile(t) {
       :class="{
         'tile--sel': selectable.includes(t.id),
         'tile--up': upgradable(t.id),
+        'tile--bank': isRiverBank(t),
       }"
       :style="{ left: posOf(t.id).x + '%', top: posOf(t.id).y + '%', background: tileBg(t), color: tileFg(t) }"
       :title="t.name + (t.sub ? ' · ' + t.sub : '') + (ownerOf(t.id) ? ' · 拥有者 ' + ownerOf(t.id).name : '')"
       @click="onTile(t)"
     >
+      <span v-if="isRiverBank(t)" class="tile__bank-mark">🌊</span>
       <span v-if="tileMark(t)" class="tile__mark">{{ tileMark(t) }}</span>
       <span class="tile__name">{{ t.name }}</span>
       <span v-if="isPropertyTile(t)" class="tile__price">¥{{ t.price }}</span>
@@ -162,10 +182,10 @@ function onTile(t) {
 .tile {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 3.9%;
-  height: 4.4%;
-  min-width: 46px;
-  min-height: 44px;
+  width: 4.6%;
+  height: 5.2%;
+  min-width: 52px;
+  min-height: 48px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -179,6 +199,19 @@ function onTile(t) {
   text-align: center;
   box-shadow: 2px 2px 0 0 rgba(26, 26, 26, 0.85);
   z-index: 2;
+}
+
+/* 江岸格（跨江出发格）：水波标记 + 蓝色描边 */
+.tile--bank {
+  box-shadow: 0 0 0 2px #2563eb, 2px 2px 0 0 rgba(26, 26, 26, 0.85);
+}
+
+.tile__bank-mark {
+  position: absolute;
+  top: -7px;
+  left: -5px;
+  font-size: clamp(9px, 1.1cqw, 15px);
+  line-height: 1;
 }
 
 .tile--sel {
@@ -208,13 +241,15 @@ function onTile(t) {
 }
 
 .tile__name {
-  font-size: clamp(9px, 1.25cqw, 16px);
+  font-size: clamp(9px, 1.15cqw, 15px);
   font-weight: 900;
-  line-height: 1.05;
+  line-height: 1.15;
   max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-all;
 }
 
 .tile__price {
@@ -285,6 +320,21 @@ function onTile(t) {
   font-style: normal;
   font-size: clamp(8px, 1cqw, 13px);
   line-height: 1;
+}
+
+/* 区域淡色块 */
+.region {
+  opacity: 0.5;
+  stroke: none;
+}
+
+/* 江名标签 */
+.river-label {
+  font-size: 6px;
+  font-weight: 900;
+  fill: #1e40af;
+  letter-spacing: 0.2em;
+  opacity: 0.85;
 }
 
 /* 环中心信息面板已删除（折线地图中心不固定，会压到格子；回合/骰子在 ActionPanel 显示） */
