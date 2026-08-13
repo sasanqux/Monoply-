@@ -1,5 +1,5 @@
 // movement.js — 逐格移动（过江拦截/桥收费/道具触发）+ 载具掷骰
-import { TILES, nextTileIndex, isBridge, VEHICLES, PASS_START_SALARY } from './board.js'
+import { TILES, nextTileIndex, isBridge, VEHICLES, PASS_START_SALARY, TILE_COUNT } from './board.js'
 import { addMoney, payMoney } from './bank.js'
 import { checkBankrupt } from './gameOver.js'
 
@@ -13,7 +13,6 @@ export function rollForPlayer(player) {
   if (player.remoteDice != null) {
     const v = player.remoteDice
     player.remoteDice = null
-    // 拆成两颗骰子展示（上限 6/6）
     const a = Math.min(6, Math.max(1, Math.ceil(v / 2)))
     const b = Math.min(6, Math.max(1, v - a))
     return [a, b]
@@ -24,19 +23,24 @@ export function rollForPlayer(player) {
   return dice
 }
 
-// 逐格移动；返回 { pos, blocked }（blocked=true 表示被江/路障拦截，剩余点数作废）
+// 1-48 闭环走一步
+function step(pos, dir) {
+  return ((pos - 1 + dir + TILE_COUNT) % TILE_COUNT) + 1
+}
+
+// 逐格移动；返回 { pos, blocked }
 export function movePlayer(state, player, dice) {
   const steps = dice.reduce((a, b) => a + b, 0)
   const dir = player.direction === -1 ? -1 : 1
   let blocked = false
 
   for (let i = 0; i < steps; i++) {
-    // 1. 过江拦截：出发格标记 riverEdge 且无桥/桥被封闭 → 拦在江边
+    // 1. 过江拦截
     if (TILES[player.pos].riverEdge && !player.ferry) {
       const ni = nextTileIndex(player.pos)
       const nTile = TILES[ni]
       const closed = (state.closedBridges[ni] ?? 0) > 0
-      if (!isBridge(nTile) || closed) {
+      if (!(isBridge(nTile) || nTile.type === 'metro' && nTile.id === 44) || closed) {
         blocked = true
         state.log.push(`🌊 ${player.name} 在「${TILES[player.pos].name}」被江水拦住，下回合才能过江`)
         break
@@ -44,11 +48,11 @@ export function movePlayer(state, player, dice) {
     }
 
     // 2. 走一步
-    player.pos = (player.pos + dir + TILES.length) % TILES.length
+    player.pos = step(player.pos, dir)
 
     // 3. 过起点发工资（仅顺时针）
-    if (dir === 1 && player.pos === 0) {
-      addMoney(state, player.id, PASS_START_SALARY, '经过起点领取工资')
+    if (dir === 1 && player.pos === 1) {
+      addMoney(state, player.id, PASS_START_SALARY, '绕城一周回到解放碑，领取工资')
     }
 
     // 4. 到达桥格：收过路费（轮渡免收）

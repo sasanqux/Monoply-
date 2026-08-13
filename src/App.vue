@@ -57,6 +57,10 @@ const selectableTiles = computed(() => {
   const st = state.value
   if (!st || !selecting.value) return []
   const me = currentPlayer(st)
+  if (selecting.value.type === 'metro') {
+    // 乘轻轨：其他所有轻轨站可选
+    return TILES.filter((t) => t.type === 'metro' && t.id !== me.pos).map((t) => t.id)
+  }
   if (selecting.value.type === 'card') {
     const card = me.hand.find((c) => c.id === selecting.value.id)
     if (!card) return []
@@ -108,7 +112,9 @@ const selectablePlayers = computed(() => {
 function onTileClick(tileId) {
   if (!selecting.value) return
   const sel = selecting.value
-  if (sel.type === 'card') {
+  if (sel.type === 'metro') {
+    dispatch({ type: 'TRAVEL_METRO', targetTileId: tileId })
+  } else if (sel.type === 'card') {
     if (sel.mode === 'swap' && sel.swapStep === 1) {
       selecting.value = { ...sel, swapStep: 2, myTile: tileId }
       return
@@ -171,6 +177,11 @@ function confirmRemoteDice() {
   dicePicker.value = false
 }
 
+function startMetro() {
+  if (!isMyTurn.value) return
+  selecting.value = { type: 'metro', id: null }
+}
+
 function cancelSelect() {
   selecting.value = null
   dicePicker.value = false
@@ -179,6 +190,7 @@ function cancelSelect() {
 const selectHint = computed(() => {
   const sel = selecting.value
   if (!sel) return ''
+  if (sel.type === 'metro') return '选一个轻轨站（花 ¥150 乘过去）'
   if (sel.type === 'card') {
     if (sel.mode === 'swap' && sel.swapStep === 1) return '点一块自己的地（用于交换）'
     if (sel.mode === 'swap') return '点一块对方的地（换过去）'
@@ -207,14 +219,16 @@ const selectHint = computed(() => {
             <span class="select-bar__text">👉 {{ selectHint }}</span>
             <button class="btn-comic btn-comic--sm btn-comic--ghost" @click="cancelSelect">取消</button>
           </div>
-          <Board
-            :state="state"
-            :current="cur"
-            :selectable="selectableTiles"
-            @tile-click="onTileClick"
-            @upgrade="(id) => dispatch({ type: 'UPGRADE_PROPERTY', tileId: id })"
-          />
-          <ActionPanel :state="state" :current="cur" :is-my-turn="isMyTurn" @dispatch="dispatch" />
+          <div class="board-wrap">
+            <Board
+              :state="state"
+              :current="cur"
+              :selectable="selectableTiles"
+              @tile-click="onTileClick"
+              @upgrade="(id) => dispatch({ type: 'UPGRADE_PROPERTY', tileId: id })"
+            />
+          </div>
+          <ActionPanel :state="state" :current="cur" :is-my-turn="isMyTurn" @dispatch="dispatch" @metro="startMetro" />
         </main>
 
         <SidePanel :state="state" :current="cur" :selectable-players="selectablePlayers" @player-click="onPlayerClick" />
@@ -271,6 +285,11 @@ const selectHint = computed(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+.board-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .select-bar {

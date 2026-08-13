@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { TILES, VEHICLES } from '../game/index.js'
+import { TILES, VEHICLES, SHOPS } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
@@ -21,7 +21,15 @@ function statusOf(p) {
 }
 
 function landNames(p) {
-  return p.properties.map((i) => TILES[i].name).join('、') || '—'
+  return (
+    p.properties
+      .map((i) => {
+        const t = TILES[i]
+        const lv = p.levels[i] ?? 0
+        return lv > 0 ? `${SHOPS[lv].icon}${t.name}` : t.name
+      })
+      .join('、') || '—'
+  )
 }
 
 function onPlayer(p) {

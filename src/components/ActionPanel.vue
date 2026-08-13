@@ -1,13 +1,13 @@
 <script setup>
 import { computed } from 'vue'
-import { TILES, VEHICLES } from '../game/index.js'
+import { TILES, VEHICLES, isMetro } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
   current: Object,
   isMyTurn: Boolean,
 })
-const emit = defineEmits(['dispatch'])
+const emit = defineEmits(['dispatch', 'metro'])
 
 const pendingTile = computed(() => {
   if (props.state.pending?.kind === 'buy') {
@@ -17,6 +17,8 @@ const pendingTile = computed(() => {
 })
 
 const canBuy = computed(() => pendingTile.value && props.current.money >= pendingTile.value.price)
+
+const metroPending = computed(() => props.state.pending?.kind === 'metro')
 
 const statusText = computed(() => {
   if (props.state.status !== 'playing') return ''
@@ -28,6 +30,7 @@ const statusText = computed(() => {
   if (cur.hospital) return `🏥 ${cur.name} 在医院休养`
   if (!props.isMyTurn) return `🤖 ${cur.name} 思考中…`
   if (props.state.phase === 'roll') return `🎲 轮到你掷骰（${VEHICLES[cur.vehicle].name} ${VEHICLES[cur.vehicle].dice} 颗）`
+  if (metroPending.value) return `🚈 轻轨站：可以乘轻轨去其他站`
   if (pendingTile.value) return `「${pendingTile.value.name}」${pendingTile.value.type === 'bridge' ? '（桥）' : ''}待购买`
   return `轮到你行动`
 })
@@ -53,6 +56,9 @@ const statusText = computed(() => {
           </button>
           <button class="btn-comic btn-comic--ghost" @click="emit('dispatch', { type: 'SKIP_BUY' })">放弃</button>
         </template>
+        <button v-if="metroPending" class="btn-comic btn-comic--blue" @click="emit('metro')">
+          🚈 乘轻轨 ¥150
+        </button>
         <button class="btn-comic btn-comic--yellow" @click="emit('dispatch', { type: 'END_TURN' })">结束回合</button>
       </template>
     </div>

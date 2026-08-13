@@ -1,5 +1,5 @@
 // reducer.js — gameReducer 纯函数总入口（单机本地跑，联机时搬到服务器）
-import { TILES, START_MONEY_DEFAULT, isPropertyTile, isBridge } from './board.js'
+import { TILES, START_MONEY_DEFAULT, isPropertyTile, isBridge, isMetro, METRO_FEE } from './board.js'
 import { rollForPlayer, movePlayer } from './movement.js'
 import { addMoney } from './bank.js'
 import { upgradeCost } from './property.js'
@@ -38,7 +38,7 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
       isAI: !!pl.isAI,
       color: PLAYER_COLORS[i % PLAYER_COLORS.length],
       money: startMoney,
-      pos: 0,
+      pos: 1, // 48 格 1-48 编号，起点 1 解放碑
       properties: [],
       levels: {},
       hand: [],
@@ -56,7 +56,8 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
     })),
     log: [
       `🎮 重庆大富翁！${players.map((p) => p.name).join('、')}，每人起始资金 ¥${startMoney}`,
-      `🌉 过江要走桥，桥可以买！`,
+      `🏙️ 绕重庆主城一圈 · 48 格 · 两江四桥 · 6 大商圈`,
+      `🚈 轻轨站可购买 · 乘轻轨去别的站`,
       `第 1 回合，轮到 ${players[0].name}`,
     ],
   }
@@ -179,7 +180,26 @@ export function gameReducer(state, action) {
         s.log.push(`${p.name} 放弃购买「${tile.name}」`)
         s.pending = null
       }
+      if (s.pending?.kind === 'metro') s.pending = null
       result = nextTurn(s)
+      break
+    }
+
+    case 'TRAVEL_METRO': {
+      // 轻轨：从当前轻轨站付费前往目标轻轨站
+      if (s.pending?.kind !== 'metro') break
+      if (!isMetro(TILES[p.pos])) break
+      const target = TILES[action.targetTileId]
+      if (!target || !isMetro(target) || target.id === p.pos) break
+      if (p.money < METRO_FEE) {
+        s.log.push(`${p.name} 钱不够乘轻轨（¥${METRO_FEE}）`)
+        break
+      }
+      p.money -= METRO_FEE
+      const fromName = TILES[p.pos].name
+      p.pos = target.id
+      s.pending = null
+      s.log.push(`🚈 ${p.name} 花 ¥${METRO_FEE} 乘轻轨，从「${fromName}」来到「${target.name}」`)
       break
     }
 
