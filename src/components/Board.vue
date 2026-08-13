@@ -209,18 +209,18 @@ function onTile(t) {
 .tile {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 4.6%;
-  height: 5.2%;
-  min-width: 52px;
-  min-height: 48px;
+  width: 5.4%;
+  height: 3.4%;
+  min-width: 58px;
+  min-height: 30px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 1px;
+  gap: 2px;
   border: 2px solid var(--ink);
   border-radius: 6px;
-  padding: 1px 2px;
+  padding: 1px 4px;
   user-select: none;
   cursor: default;
   text-align: center;
@@ -238,6 +238,16 @@ function onTile(t) {
   top: -7px;
   left: -5px;
   font-size: clamp(9px, 1.1cqw, 15px);
+  line-height: 1;
+}
+
+.tile__num {
+  position: absolute;
+  top: 1px;
+  left: 3px;
+  font-size: clamp(7px, 0.8cqw, 11px);
+  font-weight: 900;
+  opacity: 0.75;
   line-height: 1;
 }
 
@@ -270,28 +280,29 @@ function onTile(t) {
 }
 
 .tile__mark {
-  font-size: clamp(10px, 1.5cqw, 19px);
+  font-size: clamp(10px, 1.3cqw, 17px);
   font-weight: 900;
   line-height: 1;
+  flex-shrink: 0;
 }
 
 .tile__name {
-  font-size: clamp(9px, 1.15cqw, 15px);
+  font-size: clamp(8.5px, 1.05cqw, 14px);
   font-weight: 900;
-  line-height: 1.15;
-  max-width: 100%;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  line-height: 1.1;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
   overflow: hidden;
-  word-break: break-all;
+  text-overflow: ellipsis;
 }
 
 .tile__price {
-  font-size: clamp(7.5px, 0.95cqw, 13px);
+  font-size: clamp(7px, 0.85cqw, 12px);
   font-weight: 900;
   opacity: 0.95;
   line-height: 1;
+  flex-shrink: 0;
 }
 
 .tile__closed {
@@ -303,45 +314,45 @@ function onTile(t) {
 
 .tile__shop {
   position: absolute;
-  top: 1px;
-  left: 1px;
-  font-size: clamp(9px, 1.2cqw, 15px);
+  top: 0px;
+  left: 2px;
+  font-size: clamp(8px, 0.9cqw, 12px);
   line-height: 1;
 }
 
 .tile__owner {
   position: absolute;
-  bottom: 1px;
-  right: 1px;
-  width: clamp(4px, 0.5cqw, 7px);
-  height: clamp(4px, 0.5cqw, 7px);
+  bottom: 0px;
+  right: 2px;
+  width: clamp(3.5px, 0.4cqw, 6px);
+  height: clamp(3.5px, 0.4cqw, 6px);
   border-radius: 50%;
   border: 1px solid var(--ink);
 }
 
 .tile__items {
   position: absolute;
-  bottom: 1px;
-  left: 1px;
+  bottom: 0px;
+  left: 2px;
   display: flex;
   gap: 1px;
-  font-size: clamp(9px, 1.1cqw, 14px);
+  font-size: clamp(8px, 0.9cqw, 12px);
 }
 
 .tile__pawns {
   position: absolute;
-  top: 1px;
-  right: 1px;
+  top: 0px;
+  right: 2px;
   display: flex;
   gap: 1.5px;
   flex-wrap: wrap;
-  max-width: 80%;
+  max-width: 70%;
 }
 
 .pawn {
   position: relative;
-  width: clamp(7px, 0.9cqw, 12px);
-  height: clamp(7px, 0.9cqw, 12px);
+  width: clamp(6px, 0.75cqw, 10px);
+  height: clamp(6px, 0.75cqw, 10px);
   border-radius: 50%;
   border: 1.5px solid var(--ink);
   box-shadow: 0.5px 0.5px 0 0 rgba(26, 26, 26, 0.7);
@@ -349,11 +360,11 @@ function onTile(t) {
 
 .pawn__veh {
   position: absolute;
-  top: -8px;
+  top: -7px;
   left: 50%;
   transform: translateX(-50%);
   font-style: normal;
-  font-size: clamp(8px, 1cqw, 13px);
+  font-size: clamp(7px, 0.85cqw, 11px);
   line-height: 1;
 }
 
