@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { TILES, RIVERS, METRO_LINE, GROUPS, tilePosition, isPropertyTile, isBridge, isMetro, SHOPS } from '../game/index.js'
+import { TILES, RIVERS, METRO_LINE, PATH_POLYLINE, GROUPS, tilePosition, isPropertyTile, isBridge, isMetro, SHOPS } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
@@ -11,13 +11,8 @@ const emit = defineEmits(['tileClick', 'upgrade'])
 
 const tiles = computed(() => TILES.filter(Boolean))
 
-// 蜿蜒闭环路径线（1→2→…→48→1）
-const pathLine = computed(() => {
-  return tiles.value.map((t) => {
-    const p = tilePosition(t.id)
-    return `${p.x},${p.y}`
-  }).join(' ')
-})
+// 折线路径线（直接从 PATH_POLYLINE 拐点连接）
+const pathLine = computed(() => PATH_POLYLINE)
 
 function posOf(id) {
   return tilePosition(id)
@@ -92,11 +87,6 @@ function onTile(t) {
     emit('upgrade', t.id)
   }
 }
-
-const diceText = computed(() => {
-  if (!props.state.dice) return '—'
-  return props.state.dice.join(' + ')
-})
 </script>
 
 <template>
@@ -144,16 +134,6 @@ const diceText = computed(() => {
           <em v-if="p.vehicle !== 'walk'" class="pawn__veh">{{ p.vehicle === 'bike' ? '🚲' : p.vehicle === 'moto' ? '🛵' : p.vehicle === 'car' ? '🚗' : '✈️' }}</em>
         </i>
       </span>
-    </div>
-
-    <!-- 环中心信息面板 -->
-    <div class="board__center">
-      <div class="board__logo">重庆<br />大富翁</div>
-      <div class="board__info">
-        <span>第 {{ state.round }} 回合</span>
-        <span class="board__who">轮到 <b>{{ current ? current.name : '—' }}</b></span>
-        <span class="board__dice">🎲 {{ diceText }}</span>
-      </div>
     </div>
   </div>
 </template>
@@ -307,53 +287,7 @@ const diceText = computed(() => {
   line-height: 1;
 }
 
-/* 环中心信息面板 */
-.board__center {
-  position: absolute;
-  left: 37%;
-  top: 30%;
-  width: 26%;
-  height: 40%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  text-align: center;
-  border: 4px solid var(--ink);
-  border-radius: 12px;
-  background: #fffef0;
-  box-shadow: 4px 4px 0 0 var(--ink);
-  z-index: 3;
-}
-
-.board__logo {
-  font-size: clamp(12px, 1.8cqw, 22px);
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  line-height: 1.1;
-  background: var(--pop-yellow);
-  border: 3px solid var(--ink);
-  border-radius: 8px;
-  padding: 3px 12px;
-  transform: rotate(-2deg);
-}
-
-.board__info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: clamp(9px, 1.1cqw, 14px);
-  font-weight: 900;
-}
-
-.board__who b {
-  color: var(--pop-red);
-}
-
-.board__dice {
-  letter-spacing: 0.08em;
-}
+/* 环中心信息面板已删除（折线地图中心不固定，会压到格子；回合/骰子在 ActionPanel 显示） */
 
 @media (max-width: 700px) {
   .board {

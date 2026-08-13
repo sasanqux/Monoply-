@@ -43,20 +43,43 @@ export const VEHICLE_ORDER = ['walk', 'bike', 'moto', 'car', 'plane']
 
 export const TILE_COUNT = 48
 
-// ===== 蜿蜒闭环坐标生成（极坐标三叶波浪环） =====
-// 中心 (50,46)，基准半径 42，3 叶正弦波浪（轮廓蜿蜒如地图，非矩形非正圆）
-const CX = 50
-const CY = 46
-const R = 42
-const YK = 0.85 // y 压缩（椭圆）
-const START_ANGLE = -2.2 // 起点 1 在环左上（渝中方向）
+// ===== 棱角分明的折线路径（环线轻轨图风格） =====
+// 路径由 [x,y] 拐点定义，48 个格子沿折线等距排布，整条路 90° 拐弯
+// 形状：起点(12,15)左上 → 顶边 → 右上内凹 → 右下凸出 → 底边 → 左下凸起 → 左边 → 闭环
+const SEGMENTS = [
+  [12, 15],  // 0 起点（解放碑）
+  [88, 15],  // 1 顶边右
+  [88, 35],  // 2 右上向下
+  [72, 35],  // 3 向左内凹
+  [72, 58],  // 4 向下
+  [88, 58],  // 5 向右折出
+  [88, 75],  // 6 右下角
+  [50, 75],  // 7 底边中
+  [50, 55],  // 8 向上折（凸起顶端）
+  [12, 55],  // 9 向左到底
+  [12, 15],  // 10 闭环回起点
+]
+const _segLen = SEGMENTS.slice(0, -1).map((a, i) =>
+  Math.hypot(SEGMENTS[i + 1][0] - a[0], SEGMENTS[i + 1][1] - a[1])
+)
+const _totalLen = _segLen.reduce((a, b) => a + b, 0)
+const _segStarts = [0]
+for (let i = 0; i < _segLen.length; i++) _segStarts.push(_segStarts[i] + _segLen[i])
+
+// 折线本身（用于 Board.vue 画路径）
+export const PATH_POLYLINE = SEGMENTS.map((s) => s.join(',')).join(' ')
 
 export function tilePosition(id) {
-  const th = START_ANGLE + (2 * Math.PI * (id - 1)) / TILE_COUNT
-  const r = R + 3 * Math.sin(3 * th + 0.6)
+  const target = (_totalLen * (id - 1)) / TILE_COUNT
+  let segIdx = 0
+  for (let j = 0; j < _segLen.length; j++) {
+    if (_segStarts[j + 1] >= target) { segIdx = j; break }
+  }
+  const t = (target - _segStarts[segIdx]) / _segLen[segIdx]
+  const a = SEGMENTS[segIdx], b = SEGMENTS[segIdx + 1]
   return {
-    x: +(CX + r * Math.cos(th)).toFixed(1),
-    y: +(CY + r * YK * Math.sin(th)).toFixed(1),
+    x: +(a[0] + (b[0] - a[0]) * t).toFixed(1),
+    y: +(a[1] + (b[1] - a[1]) * t).toFixed(1),
   }
 }
 
@@ -115,14 +138,14 @@ export const TILES = [
 
 // 跨江边界（出发格 → 桥/通道格）：3→4 / 28→29 / 32→33 / 43→44 / 47→48
 
-// 两江背景（0-100 坐标）：嘉陵江从顶进穿过黄花园桥(4)绕到千厮门桥(48)；长江从右上进穿过菜园坝(29)/东水门(33)
+// 两江背景（0-100 坐标）：嘉陵江从顶入穿过黄花园桥(4)绕到千厮门桥(48)；长江从右上斜穿菜园坝(29)/东水门(33)
 export const RIVERS = [
-  { name: '嘉陵江', d: 'M 30 0 Q 36 4 39.5 8.8 Q 41 16 34 22 Q 27 26 21.3 20.3 Q 17 15 22 5' },
-  { name: '长江', d: 'M 95 38 Q 82 48 70 54 Q 62 60 58 67 Q 55 74 54.1 79.1 Q 46 84 32.6 79.3 Q 26 77 16 80 Q 10 83 8 88' },
+  { name: '嘉陵江', d: 'M 4 0 Q 18 4 37 15 Q 24 18 12 21.3 Q 4 18 6 6' },
+  { name: '长江', d: 'M 96 20 Q 92 40 88 59 Q 70 57 50 55 Q 28 62 8 88' },
 ]
 
-// 轻轨线路：红土地(9)→李子坝(28)→山城电梯(44)
-export const METRO_LINE = 'M 66.7 14 Q 64 46 59.1 78.2 Q 42 62 28 50 Q 17 42 12.6 36.6'
+// 轻轨线路：红土地(9, 62.7,15)→李子坝(28, 50,59.3)→山城电梯(44, 50,55)
+export const METRO_LINE = 'M 62.7 15 Q 56 32 50 59.3 L 50 55'
 
 export function getTile(index) {
   return TILES[((index - 1 + TILE_COUNT) % TILE_COUNT) + 1]
