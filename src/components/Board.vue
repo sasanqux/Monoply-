@@ -205,10 +205,10 @@ function onTile(t) {
 .tile {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 5.4%;
-  height: 3.4%;
-  min-width: 58px;
-  min-height: 30px;
+  width: 5.9%;
+  height: 3.6%;
+  min-width: 62px;
+  min-height: 32px;
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -216,7 +216,7 @@ function onTile(t) {
   gap: 2px;
   border: 2px solid var(--ink);
   border-radius: 6px;
-  padding: 1px 4px;
+  padding: 1px 3px;
   user-select: none;
   cursor: default;
   text-align: center;
