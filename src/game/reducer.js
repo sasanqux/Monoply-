@@ -17,6 +17,8 @@ export const PLAYER_COLORS = [
   '#3d3d3d', // 灰
 ]
 
+const MAX_LOG = 200 // 事件日志截断上限，防长局内存/渲染膨胀
+
 // 创建初始局面
 export function createInitialState({ players, maxTurns = 40, startMoney = START_MONEY_DEFAULT }) {
   return {
@@ -54,21 +56,24 @@ export function gameReducer(state, action) {
   const s = structuredClone(state)
   if (s.status !== 'playing') return s
   const p = currentPlayer(s)
+  let result = s
 
   switch (action.type) {
     case 'ROLL_DICE': {
-      if (s.phase !== 'roll') return s
+      if (s.phase !== 'roll') break
       // 监狱：跳过掷骰，停一轮
       if (p.jailLeft > 0) {
         p.jailLeft -= 1
         s.log.push(`🚔 ${p.name} 在监狱服刑（还剩 ${p.jailLeft} 轮）`)
-        return nextTurn(s)
+        result = nextTurn(s)
+        break
       }
       // 医院：休养一轮
       if (p.hospital) {
         p.hospital = false
         s.log.push(`🏥 ${p.name} 在医院休养，跳过本回合`)
-        return nextTurn(s)
+        result = nextTurn(s)
+        break
       }
       const dice = rollDice()
       s.dice = dice
@@ -78,22 +83,22 @@ export function gameReducer(state, action) {
       s.log.push(`🎲 ${p.name} 掷出 ${dice[0]} + ${dice[1]} = ${sum}，走到「${tile.name}」`)
       s.phase = 'landed'
       handleLanding(s, p)
-      return s
+      break
     }
 
     case 'BUY_PROPERTY': {
-      if (s.pending?.kind !== 'buy') return s
+      if (s.pending?.kind !== 'buy') break
       const tile = TILES[s.pending.tileId]
       if (p.money < tile.price) {
         s.log.push(`${p.name} 现金不足，无法购买 ${tile.name}`)
-        return s
+        break
       }
       p.money -= tile.price
       p.properties.push(tile.id)
       p.levels[tile.id] = 0
       s.pending = null
       s.log.push(`🏠 ${p.name} 购入「${tile.name}」（¥${tile.price}，现 ¥${p.money}）`)
-      return s
+      break
     }
 
     case 'SKIP_BUY': {
@@ -102,32 +107,41 @@ export function gameReducer(state, action) {
         s.log.push(`${p.name} 放弃购买「${tile.name}」`)
         s.pending = null
       }
-      return s
+      break
     }
 
     case 'UPGRADE_PROPERTY': {
       const tile = TILES[action.tileId]
-      if (!tile || !p.properties.includes(tile.id)) return s
+      if (!tile || !p.properties.includes(tile.id)) break
       const level = p.levels[tile.id] ?? 0
-      if (level >= 3) return s
+      if (level >= 3) break
       const cost = upgradeCost(tile)
-      if (p.money < cost) return s
+      if (p.money < cost) break
       p.money -= cost
       p.levels[tile.id] = level + 1
       s.log.push(`🏗 ${p.name} 将「${tile.name}」升级到 ${level + 1} 级（¥${cost}，现 ¥${p.money}）`)
-      return s
+      break
     }
 
     case 'END_TURN': {
+      // 规则层防护：未掷骰（phase=roll）不得跳过回合——单机被界面挡住，联机时服务器只认这里
+      if (s.phase !== 'landed') break
       if (s.pending?.kind === 'buy') {
         const tile = TILES[s.pending.tileId]
         s.log.push(`${p.name} 放弃购买「${tile.name}」`)
         s.pending = null
       }
-      return nextTurn(s)
+      result = nextTurn(s)
+      break
     }
 
     default:
-      return s
+      break
   }
+
+  // 日志截断：只保留最近 MAX_LOG 条
+  if (result.log.length > MAX_LOG) {
+    result.log.splice(0, result.log.length - MAX_LOG)
+  }
+  return result
 }

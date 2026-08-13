@@ -35,7 +35,7 @@ function landNames(p) {
         >
           <i class="player__dot" :style="{ background: p.color }"></i>
           <span class="player__name">{{ p.name }}<em v-if="p.isAI">AI</em></span>
-          <span class="player__money">¥{{ p.money }}</span>
+          <span class="player__money" :class="{ 'player__money--debt': p.bankrupt }">{{ p.bankrupt && p.money < 0 ? '欠 ¥' + (-p.money) : '¥' + p.money }}</span>
           <span class="player__status">{{ statusOf(p) }}</span>
           <span class="player__land">{{ landNames(p) }}</span>
         </li>
@@ -130,6 +130,10 @@ function landNames(p) {
   font-size: 13px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+}
+
+.player__money--debt {
+  color: var(--red);
 }
 
 .player__status {
