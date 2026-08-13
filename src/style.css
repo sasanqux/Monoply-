@@ -1,0 +1,117 @@
+/* 瑞士国际主义风格 · 全局样式 */
+:root {
+  --black: #111111;
+  --white: #ffffff;
+  --red: #e30613;
+  --gray-900: #1a1a1a;
+  --gray-700: #3d3d3d;
+  --gray-500: #8a8a8a;
+  --gray-300: #d4d4d4;
+  --gray-100: #f2f2f2;
+  --grid: #e5e5e5;
+
+  --font: "Helvetica Neue", Helvetica, Arial, "Inter", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 48px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  font-family: var(--font);
+  color: var(--black);
+  background: var(--white);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: var(--font);
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.btn {
+  display: inline-block;
+  padding: 12px 28px;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  border: 2px solid var(--black);
+  background: var(--white);
+  color: var(--black);
+  transition: background 0.15s ease, color 0.15s ease;
+  text-transform: uppercase;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--black);
+  color: var(--white);
+}
+
+.btn--red {
+  background: var(--red);
+  border-color: var(--red);
+  color: var(--white);
+}
+
+.btn--red:hover:not(:disabled) {
+  background: var(--black);
+  border-color: var(--black);
+}
+
+.btn--ghost {
+  border-color: var(--gray-300);
+  color: var(--gray-700);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  border-color: var(--black);
+  color: var(--black);
+  background: none;
+}
+
+.btn--sm {
+  padding: 8px 16px;
+  font-size: 13px;
+}
+
+.input,
+.select {
+  font-family: var(--font);
+  font-size: 15px;
+  padding: 10px 12px;
+  border: 2px solid var(--black);
+  border-radius: 0;
+  background: var(--white);
+  color: var(--black);
+  outline: none;
+}
+
+.input:focus,
+.select:focus {
+  border-color: var(--red);
+}
+
+.sec-title {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gray-500);
+  margin-bottom: var(--space-2);
+}
