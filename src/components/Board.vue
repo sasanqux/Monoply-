@@ -45,6 +45,15 @@ function isRiverBank(t) {
   return !!t.riverEdge
 }
 
+// 按名字长度自适应字号：保证长地名完整显示
+function nameFont(name) {
+  const len = name.length
+  if (len <= 3) return 'clamp(9.5px, 1.35cqw, 17px)'
+  if (len === 4) return 'clamp(9px, 1.2cqw, 15px)'
+  if (len === 5) return 'clamp(8.5px, 1.05cqw, 13px)'
+  return 'clamp(8px, 0.85cqw, 12px)' // 6 字及以上
+}
+
 function tileBg(t) {
   // 纯颜色区分：普通地产=白 / 桥=蓝 / 轻轨=绿 / 商圈=紫 / 起点=红 / 事件=黄
   switch (t.type) {
@@ -150,7 +159,7 @@ function onTile(t) {
     >
       <span class="tile__num">{{ t.id }}</span>
       <span v-if="isRiverBank(t)" class="tile__bank-mark">🌊</span>
-      <span class="tile__name">{{ t.name }}</span>
+      <span class="tile__name" :style="{ fontSize: nameFont(t.name) }">{{ t.name }}</span>
 
       <span v-if="isClosed(t.id)" class="tile__closed">🚧</span>
 
@@ -267,7 +276,6 @@ function onTile(t) {
 }
 
 .tile__name {
-  font-size: clamp(9.5px, 1.35cqw, 17px);
   font-weight: 900;
   line-height: 1.1;
   flex: 1;
