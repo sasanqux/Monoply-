@@ -7,6 +7,7 @@ import SidePanel from './components/SidePanel.vue'
 import HandPanel from './components/HandPanel.vue'
 import ItemPanel from './components/ItemPanel.vue'
 import ResultOverlay from './components/ResultOverlay.vue'
+import LandInfoModal from './components/LandInfoModal.vue'
 import { createInitialState, gameReducer, aiDecide, currentPlayer, TILES, isPropertyTile, isBridge, cardTargetKind } from './game/index.js'
 
 const AI_NAMES = ['阿蓝', '阿绿', '阿橙', '阿紫', '阿粉', '阿灰', '阿黑']
@@ -19,6 +20,7 @@ let aiTimer = null
 const selecting = ref(null) // { type:'card'|'item', id, mode:'tile'|'player'|'swap', swapStep, myTile }
 const dicePicker = ref(false)
 const remoteValue = ref(7)
+const infoTile = ref(null) // 当前查看详情的格子 id
 
 function startGame(opts) {
   lastOpts.value = { ...opts }
@@ -182,6 +184,15 @@ function startMetro() {
   selecting.value = { type: 'metro', id: null }
 }
 
+function openTileInfo(id) {
+  infoTile.value = id
+}
+
+function upgradeFromInfo(id) {
+  dispatch({ type: 'UPGRADE_PROPERTY', tileId: id })
+  infoTile.value = null
+}
+
 function cancelSelect() {
   selecting.value = null
   dicePicker.value = false
@@ -225,7 +236,7 @@ const selectHint = computed(() => {
               :current="cur"
               :selectable="selectableTiles"
               @tile-click="onTileClick"
-              @upgrade="(id) => dispatch({ type: 'UPGRADE_PROPERTY', tileId: id })"
+              @tile-info="openTileInfo"
             />
           </div>
           <ActionPanel :state="state" :current="cur" :is-my-turn="isMyTurn" @dispatch="dispatch" @metro="startMetro" />
@@ -252,6 +263,15 @@ const selectHint = computed(() => {
       </div>
 
       <ResultOverlay v-if="state.status === 'finished'" :state="state" @again="startGame(lastOpts)" />
+
+      <!-- 地块详情弹窗 -->
+      <LandInfoModal
+        v-if="infoTile"
+        :state="state"
+        :tile-id="infoTile"
+        @close="infoTile = null"
+        @upgrade="upgradeFromInfo"
+      />
     </template>
 
     <footer class="app__foot">重庆大富翁 · Comic Style · M0+ 版</footer>

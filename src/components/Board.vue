@@ -7,7 +7,7 @@ const props = defineProps({
   current: Object,
   selectable: { type: Array, default: () => [] },
 })
-const emit = defineEmits(['tileClick', 'upgrade'])
+const emit = defineEmits(['tileClick', 'upgrade', 'tileInfo'])
 
 const tiles = computed(() => TILES.filter(Boolean))
 
@@ -111,7 +111,9 @@ function onTile(t) {
   if (props.selectable.includes(t.id)) {
     emit('tileClick', t.id)
   } else if (upgradable(t.id)) {
-    emit('upgrade', t.id)
+    emit('tileInfo', t.id) // 点自己的可升级地 → 弹详情（详情里有升级按钮）
+  } else {
+    emit('tileInfo', t.id)
   }
 }
 </script>
@@ -257,6 +259,14 @@ function onTile(t) {
   outline: 4px solid var(--pop-red);
   outline-offset: 2px;
   z-index: 6;
+}
+
+/* 悬浮互动：放大 + 阴影加深 */
+.tile:hover {
+  transform: translate(-50%, -50%) scale(1.15);
+  box-shadow: 4px 4px 0 0 var(--ink);
+  z-index: 8;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
 .tile__mark {
