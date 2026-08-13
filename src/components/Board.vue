@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { TILES, RIVERS, METRO_LINE, GROUPS, isPropertyTile, isBridge, isMetro, SHOPS } from '../game/index.js'
+import { TILES, RIVERS, METRO_LINE, GROUPS, tilePosition, isPropertyTile, isBridge, isMetro, SHOPS } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
@@ -11,10 +11,17 @@ const emit = defineEmits(['tileClick', 'upgrade'])
 
 const tiles = computed(() => TILES.filter(Boolean))
 
-// 蛇形路径连接线（含左侧回程 48→1 闭环）
+// 蜿蜒闭环路径线（1→2→…→48→1）
 const pathLine = computed(() => {
-  return tiles.value.map((t) => `${t.x},${t.y}`).join(' ')
+  return tiles.value.map((t) => {
+    const p = tilePosition(t.id)
+    return `${p.x},${p.y}`
+  }).join(' ')
 })
+
+function posOf(id) {
+  return tilePosition(id)
+}
 
 function tileBg(t) {
   switch (t.type) {
@@ -85,17 +92,22 @@ function onTile(t) {
     emit('upgrade', t.id)
   }
 }
+
+const diceText = computed(() => {
+  if (!props.state.dice) return '—'
+  return props.state.dice.join(' + ')
+})
 </script>
 
 <template>
   <div class="board">
-    <svg class="board__bg" viewBox="0 0 100 90" preserveAspectRatio="none" aria-hidden="true">
+    <svg class="board__bg" viewBox="0 0 100 88" preserveAspectRatio="none" aria-hidden="true">
       <!-- 两江 -->
-      <path v-for="r in RIVERS" :key="r.name" :d="r.d" fill="none" stroke="#3b82f6" stroke-width="4" stroke-linecap="round" opacity="0.6" />
+      <path v-for="r in RIVERS" :key="r.name" :d="r.d" fill="none" stroke="#3b82f6" stroke-width="3.4" stroke-linecap="round" opacity="0.55" />
       <!-- 轻轨线（立体交通） -->
-      <path :d="METRO_LINE" fill="none" stroke="#a855f7" stroke-width="1.2" stroke-dasharray="3 2.5" opacity="0.8" />
-      <!-- 蛇形路径线 -->
-      <polyline :points="pathLine" fill="none" stroke="#1a1a1a" stroke-width="1.6" stroke-linejoin="round" opacity="0.55" />
+      <path :d="METRO_LINE" fill="none" stroke="#a855f7" stroke-width="1.1" stroke-dasharray="2.6 2.2" opacity="0.85" />
+      <!-- 蜿蜒闭环路径线 -->
+      <polyline :points="pathLine" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round" opacity="0.6" />
     </svg>
 
     <div
@@ -106,7 +118,7 @@ function onTile(t) {
         'tile--sel': selectable.includes(t.id),
         'tile--up': upgradable(t.id),
       }"
-      :style="{ left: t.x + '%', top: t.y + '%', background: tileBg(t), color: tileFg(t) }"
+      :style="{ left: posOf(t.id).x + '%', top: posOf(t.id).y + '%', background: tileBg(t), color: tileFg(t) }"
       :title="t.name + (t.sub ? ' · ' + t.sub : '') + (ownerOf(t.id) ? ' · 拥有者 ' + ownerOf(t.id).name : '')"
       @click="onTile(t)"
     >
@@ -132,6 +144,16 @@ function onTile(t) {
           <em v-if="p.vehicle !== 'walk'" class="pawn__veh">{{ p.vehicle === 'bike' ? '🚲' : p.vehicle === 'moto' ? '🛵' : p.vehicle === 'car' ? '🚗' : '✈️' }}</em>
         </i>
       </span>
+    </div>
+
+    <!-- 环中心信息面板 -->
+    <div class="board__center">
+      <div class="board__logo">重庆<br />大富翁</div>
+      <div class="board__info">
+        <span>第 {{ state.round }} 回合</span>
+        <span class="board__who">轮到 <b>{{ current ? current.name : '—' }}</b></span>
+        <span class="board__dice">🎲 {{ diceText }}</span>
+      </div>
     </div>
   </div>
 </template>
@@ -160,22 +182,23 @@ function onTile(t) {
 .tile {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 9.4%;
-  height: 10.6%;
-  min-width: 58px;
-  min-height: 62px;
+  width: 3.9%;
+  height: 4.4%;
+  min-width: 46px;
+  min-height: 44px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  border: 2.5px solid var(--ink);
-  border-radius: 7px;
-  padding: 2px;
+  gap: 1px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  padding: 1px 2px;
   user-select: none;
   cursor: default;
   text-align: center;
-  box-shadow: 2.5px 2.5px 0 0 rgba(26, 26, 26, 0.85);
+  box-shadow: 2px 2px 0 0 rgba(26, 26, 26, 0.85);
+  z-index: 2;
 }
 
 .tile--sel {
@@ -183,7 +206,7 @@ function onTile(t) {
   outline: 4px solid var(--pop-yellow);
   outline-offset: 2px;
   animation: pulse 0.9s ease-in-out infinite;
-  z-index: 5;
+  z-index: 6;
 }
 
 @keyframes pulse {
@@ -195,17 +218,17 @@ function onTile(t) {
   cursor: pointer;
   outline: 4px solid var(--pop-red);
   outline-offset: 2px;
-  z-index: 5;
+  z-index: 6;
 }
 
 .tile__mark {
-  font-size: clamp(11px, 1.7cqw, 22px);
+  font-size: clamp(10px, 1.5cqw, 19px);
   font-weight: 900;
   line-height: 1;
 }
 
 .tile__name {
-  font-size: clamp(10px, 1.5cqw, 20px);
+  font-size: clamp(9px, 1.25cqw, 16px);
   font-weight: 900;
   line-height: 1.05;
   max-width: 100%;
@@ -215,7 +238,7 @@ function onTile(t) {
 }
 
 .tile__price {
-  font-size: clamp(8px, 1.15cqw, 15px);
+  font-size: clamp(7.5px, 0.95cqw, 13px);
   font-weight: 900;
   opacity: 0.95;
   line-height: 1;
@@ -223,70 +246,118 @@ function onTile(t) {
 
 .tile__closed {
   position: absolute;
-  top: -6px;
-  right: -6px;
-  font-size: 14px;
+  top: -5px;
+  right: -5px;
+  font-size: clamp(10px, 1.3cqw, 16px);
 }
 
 .tile__shop {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  font-size: 12px;
+  top: 1px;
+  left: 1px;
+  font-size: clamp(9px, 1.2cqw, 15px);
   line-height: 1;
 }
 
 .tile__owner {
   position: absolute;
-  bottom: 2px;
-  right: 2px;
-  width: 6px;
-  height: 6px;
+  bottom: 1px;
+  right: 1px;
+  width: clamp(4px, 0.5cqw, 7px);
+  height: clamp(4px, 0.5cqw, 7px);
   border-radius: 50%;
-  border: 1.5px solid var(--ink);
+  border: 1px solid var(--ink);
 }
 
 .tile__items {
   position: absolute;
-  bottom: 2px;
-  left: 2px;
+  bottom: 1px;
+  left: 1px;
   display: flex;
-  gap: 2px;
-  font-size: 11px;
+  gap: 1px;
+  font-size: clamp(9px, 1.1cqw, 14px);
 }
 
 .tile__pawns {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 1px;
+  right: 1px;
   display: flex;
-  gap: 2px;
+  gap: 1.5px;
   flex-wrap: wrap;
   max-width: 80%;
 }
 
 .pawn {
   position: relative;
-  width: 11px;
-  height: 11px;
+  width: clamp(7px, 0.9cqw, 12px);
+  height: clamp(7px, 0.9cqw, 12px);
   border-radius: 50%;
-  border: 2px solid var(--ink);
-  box-shadow: 1px 1px 0 0 rgba(26, 26, 26, 0.7);
+  border: 1.5px solid var(--ink);
+  box-shadow: 0.5px 0.5px 0 0 rgba(26, 26, 26, 0.7);
 }
 
 .pawn__veh {
   position: absolute;
-  top: -9px;
+  top: -8px;
   left: 50%;
   transform: translateX(-50%);
   font-style: normal;
-  font-size: 10px;
+  font-size: clamp(8px, 1cqw, 13px);
   line-height: 1;
 }
 
-@media (max-width: 560px) {
+/* 环中心信息面板 */
+.board__center {
+  position: absolute;
+  left: 37%;
+  top: 30%;
+  width: 26%;
+  height: 40%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  border: 4px solid var(--ink);
+  border-radius: 12px;
+  background: #fffef0;
+  box-shadow: 4px 4px 0 0 var(--ink);
+  z-index: 3;
+}
+
+.board__logo {
+  font-size: clamp(12px, 1.8cqw, 22px);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  background: var(--pop-yellow);
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  padding: 3px 12px;
+  transform: rotate(-2deg);
+}
+
+.board__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: clamp(9px, 1.1cqw, 14px);
+  font-weight: 900;
+}
+
+.board__who b {
+  color: var(--pop-red);
+}
+
+.board__dice {
+  letter-spacing: 0.08em;
+}
+
+@media (max-width: 700px) {
   .board {
-    min-width: 520px;
+    min-width: 640px;
   }
 }
 </style>
