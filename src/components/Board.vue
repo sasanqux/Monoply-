@@ -22,6 +22,21 @@ const metroLine = computed(() => {
   }).join(' ')
 })
 
+// 行进方向箭头：每 3 格放一个，指向顺时针下一格
+const arrows = computed(() => {
+  const arr = []
+  const ids = tiles.value.map((t) => t.id)
+  for (let i = 0; i < ids.length; i += 3) {
+    const a = tilePosition(ids[i])
+    const b = tilePosition(ids[(i + 1) % ids.length])
+    const mx = (a.x + b.x) / 2
+    const my = (a.y + b.y) / 2
+    const angle = (Math.atan2(b.y - a.y, (b.x - a.x)) * 180) / Math.PI
+    arr.push({ x: mx, y: my, angle })
+  }
+  return arr
+})
+
 function posOf(id) {
   return tilePosition(id)
 }
@@ -115,7 +130,16 @@ function onTile(t) {
       <!-- 轻轨线（立体交通） -->
       <polyline :points="metroLine" fill="none" stroke="#a855f7" stroke-width="1.3" stroke-dasharray="2.6 2.2" opacity="0.9" />
       <!-- 折线闭环路径线 -->
-      <polyline :points="pathLine" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round" opacity="0.6" />
+      <polyline :points="pathLine" fill="none" stroke="#1a1a1a" stroke-width="3" stroke-linejoin="round" opacity="0.85" />
+      <!-- 行进方向箭头 -->
+      <polygon
+        v-for="(ar, i) in arrows"
+        :key="'ar' + i"
+        :points="'0,0 -5,-3.5 -5,3.5'"
+        :transform="`translate(${ar.x} ${ar.y}) rotate(${ar.angle})`"
+        fill="#1a1a1a"
+        opacity="0.7"
+      />
     </svg>
 
     <div
@@ -131,6 +155,7 @@ function onTile(t) {
       :title="t.name + (t.sub ? ' · ' + t.sub : '') + (ownerOf(t.id) ? ' · 拥有者 ' + ownerOf(t.id).name : '')"
       @click="onTile(t)"
     >
+      <span class="tile__num">{{ t.id }}</span>
       <span v-if="isRiverBank(t)" class="tile__bank-mark">🌊</span>
       <span v-if="tileMark(t)" class="tile__mark">{{ tileMark(t) }}</span>
       <span class="tile__name">{{ t.name }}</span>

@@ -43,44 +43,37 @@ export const VEHICLE_ORDER = ['walk', 'bike', 'moto', 'car', 'plane']
 
 export const TILE_COUNT = 48
 
-// ===== 棱角分明的折线路径（环线轻轨图风格 · 贴合重庆真实方位） =====
-// 地理布局：渝中起点在两江交汇处（左中），北侧江北/渝北，西侧沙坪坝/九龙坡，南侧南岸/巴南
-// 1 解放碑(渝中) → 北过嘉陵江(4黄花园桥) → 江北/渝北 → 西(沙坪坝) → 西南(九龙坡) → 南过长江(29菜园坝桥) → 南岸/巴南 → 西回(45-46) → 渝中(47上清寺) → 北过嘉陵江(48千厮门桥) → 回起点
+// ===== 棱角分明的折线路径（环线轻轨图风格 · 纯 90° 折线 · 零自交） =====
+// 全水平/垂直段（地铁图标准做法，避免斜段格子重叠）；48 格按每段分配整数格子、段内居中
+// 地理：渝中起点(26,34)左中 → 上过嘉陵江 → 江北/渝北(顶) → 右凹+右凸 → 东南 → 底部凸起 → 西南 → 西 → 回渝中
 const SEGMENTS = [
-  [30, 26],  // 0 渝中·解放碑起点（两江交汇处）
-  [32, 10],  // 1 渝中北（临江门/大溪沟/黄花园桥，过嘉陵江）
-  [60, 6],   // 2 江北（江北嘴/观音桥/红土地）
-  [86, 8],   // 3 渝北（江北机场/渝北中央公园）
-  [88, 26],  // 4 东北（礼嘉/金山寺/山城奇遇）
-  [74, 42],  // 5 西向转折（沙坪坝）
-  [48, 44],  // 6 沙坪坝（三峡广场/磁器口/西站）
-  [24, 50],  // 7 西（大渡口/九宫庙）
-  [22, 74],  // 8 西南（杨家坪/谢家湾/袁家岗/鹅岭/李子坝）
-  [44, 84],  // 9 菜园坝（跨长江，南岸北）
-  [66, 86],  // 10 南岸（南坪/南滨路/弹子石/东水门桥）
-  [86, 70],  // 11 东南（龙门浩/黄桷垭/南山）
-  [76, 46],  // 12 巴南（长生桥/茶园/巴南万达/鱼洞/大江/火锅）
-  [48, 34],  // 13 西回（九龙坡/歇台子/上清寺）
-  [30, 26],  // 14 闭环回渝中起点（千厮门桥）
+  [26, 34], [26, 12], [58, 12], [58, 6], [92, 6], [92, 28], [80, 28], [80, 48],
+  [92, 48], [92, 74], [58, 74], [58, 84], [28, 84], [28, 78], [10, 78], [10, 52],
+  [24, 52], [24, 42], [14, 42], [14, 24], [24, 24], [24, 34], [26, 34],
 ]
+// 每段分配的格子数（Σ=48；0 表示该段不落格）
+const ASSIGN = [3, 4, 1, 4, 3, 1, 3, 1, 4, 4, 1, 4, 1, 2, 4, 2, 1, 1, 3, 1, 0, 0]
 const _segLen = SEGMENTS.slice(0, -1).map((a, i) =>
   Math.hypot(SEGMENTS[i + 1][0] - a[0], SEGMENTS[i + 1][1] - a[1])
 )
-const _totalLen = _segLen.reduce((a, b) => a + b, 0)
-const _segStarts = [0]
-for (let i = 0; i < _segLen.length; i++) _segStarts.push(_segStarts[i] + _segLen[i])
+const _tileStart = [0]
+for (let i = 0; i < ASSIGN.length; i++) _tileStart.push(_tileStart[i] + ASSIGN[i])
 
 // 折线本身（用于 Board.vue 画路径）
 export const PATH_POLYLINE = SEGMENTS.map((s) => s.join(',')).join(' ')
 
 export function tilePosition(id) {
-  const target = (_totalLen * (id - 1)) / TILE_COUNT
-  let segIdx = 0
-  for (let j = 0; j < _segLen.length; j++) {
-    if (_segStarts[j + 1] >= target) { segIdx = j; break }
+  let si = 0
+  for (let j = 0; j < ASSIGN.length; j++) {
+    if (_tileStart[j + 1] >= id) { si = j; break }
   }
-  const t = (target - _segStarts[segIdx]) / _segLen[segIdx]
-  const a = SEGMENTS[segIdx], b = SEGMENTS[segIdx + 1]
+  if (ASSIGN[si] === 0) {
+    si--
+    while (ASSIGN[si] === 0) si--
+  }
+  const k = id - 1 - _tileStart[si]
+  const t = (k + 1) / (ASSIGN[si] + 1)
+  const a = SEGMENTS[si], b = SEGMENTS[si + 1]
   return {
     x: +(a[0] + (b[0] - a[0]) * t).toFixed(1),
     y: +(a[1] + (b[1] - a[1]) * t).toFixed(1),
@@ -143,18 +136,17 @@ export const TILES = [
 // 跨江边界（出发格 → 桥/通道格）：3→4 / 28→29 / 32→33 / 43→44 / 47→48
 
 // 两江背景（0-100 坐标）：江把棋盘分成 渝中半岛/江北/江南 三大区域
-// 嘉陵江：西北入，穿黄花园桥(4, 渝中北)与千厮门桥(48, 渝中)之间
-// 长江：西南入，穿菜园坝桥(29)与东水门桥(33)（南岸北侧）
+// 嘉陵江：从顶入穿黄花园桥(4, ~32,12)与千厮门桥(48, ~19,24)；长江：穿菜园坝(29, ~58,79)/东水门(33, ~34,84)
 export const RIVERS = [
-  { name: '嘉陵江', d: 'M 10 0 Q 24 6 31 10 Q 33 20 30 26 Q 26 34 18 40 Q 10 44 6 48' },
-  { name: '长江', d: 'M 4 58 Q 12 66 22 74 Q 34 82 44 84 Q 58 87 66 86 Q 76 80 86 70' },
+  { name: '嘉陵江', d: 'M 8 2 Q 20 8 32 12 Q 30 18 24 22 Q 20 24 19 24 Q 14 20 12 12' },
+  { name: '长江', d: 'M 6 58 Q 30 70 40 76 Q 50 80 58 79 Q 50 84 34 84 Q 20 88 10 90' },
 ]
 
 // 三大区域（淡色底，体现"两江分治"）
 export const REGIONS = [
-  { name: '渝中半岛', d: 'M 20 38 L 38 34 L 36 14 L 24 10 L 14 22 Z', color: '#fef3c7' },
-  { name: '江北', d: 'M 32 20 L 90 2 L 94 14 L 34 26 Z', color: '#dbeafe' },
-  { name: '江南', d: 'M 20 60 L 88 54 L 94 90 L 10 90 Z', color: '#dcfce7' },
+  { name: '渝中半岛', d: 'M 16 50 L 36 48 L 38 22 L 24 20 L 12 34 Z', color: '#fef3c7' },
+  { name: '江北', d: 'M 26 8 L 94 4 L 96 16 L 28 16 Z', color: '#dbeafe' },
+  { name: '江南', d: 'M 10 52 L 94 46 L 96 90 L 10 90 Z', color: '#dcfce7' },
 ]
 
 // 轻轨站列表（9 红土地 / 28 李子坝 / 44 山城电梯），连线由 Board 用 tilePosition 动态生成
