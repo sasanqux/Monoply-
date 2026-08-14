@@ -4,8 +4,8 @@ import SetupPanel from './components/SetupPanel.vue'
 import Board from './components/Board.vue'
 import ActionPanel from './components/ActionPanel.vue'
 import SidePanel from './components/SidePanel.vue'
-import HandPanel from './components/HandPanel.vue'
-import ItemPanel from './components/ItemPanel.vue'
+import BagsBar from './components/BagsBar.vue'
+import MyPanelModal from './components/MyPanelModal.vue'
 import ResultOverlay from './components/ResultOverlay.vue'
 import LandInfoModal from './components/LandInfoModal.vue'
 import { createInitialState, gameReducer, aiDecide, currentPlayer, TILES, isPropertyTile, isBridge, cardTargetKind } from './game/index.js'
@@ -21,6 +21,7 @@ const selecting = ref(null) // { type:'card'|'item', id, mode:'tile'|'player'|'s
 const dicePicker = ref(false)
 const remoteValue = ref(7)
 const infoTile = ref(null) // 当前查看详情的格子 id
+const myModal = ref(null) // 底部入口弹窗：'cards' | 'items' | 'lands' | 'other'
 
 function startGame(opts) {
   lastOpts.value = { ...opts }
@@ -186,6 +187,7 @@ function startMetro() {
 
 function openTileInfo(id) {
   infoTile.value = id
+  myModal.value = null // 从地产弹窗跳转时先关掉它
 }
 
 function upgradeFromInfo(id) {
@@ -246,9 +248,22 @@ const selectHint = computed(() => {
       </div>
 
       <div class="app__bags">
-        <HandPanel :me="cur" :selecting="selecting" :is-my-turn="isMyTurn" @use-card="useCard" />
-        <ItemPanel :me="cur" :is-my-turn="isMyTurn" @use-item="useItem" />
+        <BagsBar :me="cur" @open="myModal = $event" />
       </div>
+
+      <!-- 底部入口弹窗（卡牌/道具/地产/其它） -->
+      <MyPanelModal
+        v-if="myModal"
+        :mode="myModal"
+        :me="cur"
+        :state="state"
+        :is-my-turn="isMyTurn"
+        @close="myModal = null"
+        @use-card="useCard"
+        @use-item="useItem"
+        @upgrade="(id) => dispatch({ type: 'UPGRADE_PROPERTY', tileId: id })"
+        @info="openTileInfo"
+      />
 
       <!-- 遥控骰子点数选择 -->
       <div v-if="dicePicker" class="overlay-layer" @click.self="dicePicker = false">
