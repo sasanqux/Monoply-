@@ -89,15 +89,10 @@ console.log('▶ 分岔路口：人类暂停 / AI 自动选路')
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   const a = s.players[0]
-  a.pos = 1 // 朝天门，forks=[50,49], next=2(弹子石=外圈直行)
-  // 起步：从朝天门第一次出发直行走弹子石(外圈)，不弹分岔窗
-  const r0 = movePlayer(s, a, 1, null, 1)
-  check('朝天门起步直行走弹子石(外圈)，不暂停', r0.paused === false && a.pos === 2 && a.startDepart === false)
-  // 绕回：已出发后再次到朝天门，分岔只给洪崖洞/解放碑（不含弹子石直行）
-  a.pos = 1
-  a.startDepart = false
+  a.pos = 1 // 朝天门，forks=[50,49], next=2(弹子石)
+  // 开局：从朝天门出发直接弹窗选洪崖洞/解放碑（不含弹子石），不直行外圈
   const r = movePlayer(s, a, 1, null, 1) // 人类 chooser=null → 暂停
-  check('人类绕回朝天门分岔暂停', r.paused === true)
+  check('人类从朝天门(开局)出发分岔暂停', r.paused === true)
   check('朝天门分岔选项仅洪崖洞/解放碑(不含弹子石)', s.pending?.kind === 'fork' && s.pending.options.includes(50) && s.pending.options.includes(49) && !s.pending.options.includes(2))
   // AI 自动选路：走 tile.next
   const s2 = makeState([
@@ -107,7 +102,7 @@ console.log('▶ 分岔路口：人类暂停 / AI 自动选路')
   const b = s2.players[0]
   b.pos = 1
   const r2 = movePlayer(s2, b, 1, (t, opts) => aiChooseFork(s2, b, t, opts), 1)
-  check('AI 在分岔格不暂停（自动走直行）', r2.paused === false && b.pos === 2)
+  check('AI 从朝天门(开局)出发不暂停（自动选洪崖洞/解放碑之一）', r2.paused === false && (b.pos === 50 || b.pos === 49))
 }
 
 console.log('▶ 分岔路口：CHOOSE_FORK 续走 + 链式分岔')

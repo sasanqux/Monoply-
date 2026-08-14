@@ -55,11 +55,6 @@ export function movePlayer(state, player, steps, chooser, cameFrom) {
     if (dir === -1) {
       // 反向：沿图回退
       nextId = predecessorOf(player.pos)
-    } else if (cur.id === START_ID && player.startDepart) {
-      // 朝天门起步：直行走弹子石（外圈固定方向），不弹分岔窗；
-      // 分岔(洪崖洞/解放碑)只在"绕回朝天门"时给出，且只含 forks 两个内圈方向
-      player.startDepart = false
-      nextId = cur.next
     } else if (cur.forks && cur.forks.length) {
       // 分岔格：排除来路后的可选方向
       // 朝天门：分岔选项只取 forks（洪崖洞/解放碑），不含直行 next（弹子石外圈固定方向）
