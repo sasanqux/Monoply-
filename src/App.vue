@@ -15,6 +15,7 @@ const AI_NAMES = ['阿蓝', '阿绿', '阿橙', '阿紫', '阿粉', '阿灰', '�
 
 const state = ref(null)
 const lastOpts = ref(null)
+const lastMove = ref(null) // { prevPos, nextPos } 供棋子飞行特效
 let aiTimer = null
 
 // 卡牌/道具目标选择模式
@@ -26,6 +27,7 @@ const myModal = ref(null) // 底部入口弹窗：'cards' | 'items' | 'lands' | 
 
 function startGame(opts) {
   lastOpts.value = { ...opts }
+  lastMove.value = null
   const players = []
   for (let i = 0; i < opts.players; i++) {
     players.push({ id: 'p' + (i + 1), name: i === 0 ? '我' : AI_NAMES[i - 1], isAI: i !== 0 })
@@ -36,7 +38,13 @@ function startGame(opts) {
 
 function dispatch(action) {
   if (!state.value || state.value.status !== 'playing') return
+  const prevPos = state.value.players.map((p) => p.pos)
   state.value = gameReducer(state.value, action)
+  lastMove.value = {
+    prevPos,
+    nextPos: state.value.players.map((p) => p.pos),
+    n: (lastMove.value?.n ?? 0) + 1,
+  }
   scheduleAI()
 }
 
@@ -238,6 +246,7 @@ const selectHint = computed(() => {
               :state="state"
               :current="cur"
               :selectable="selectableTiles"
+              :last-move="lastMove"
               @tile-click="onTileClick"
               @tile-info="openTileInfo"
             />

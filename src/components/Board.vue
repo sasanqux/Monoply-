@@ -1,14 +1,29 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import ComicIcon from './ComicIcon.vue'
+import BoardFx from './BoardFx.vue'
 import { TILES, RIVERS, REGIONS, METRO_STATIONS, PATH_POLYLINE, GROUPS, tilePosition, isPropertyTile, isBridge, isMetro, SHOPS } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
   current: Object,
   selectable: { type: Array, default: () => [] },
+  lastMove: Object, // 由 App 传入：{ prevPos, nextPos }
 })
 const emit = defineEmits(['tileClick', 'upgrade', 'tileInfo'])
+
+const shaking = ref(false)
+function onBoom() {
+  shaking.value = true
+  setTimeout(() => (shaking.value = false), 450)
+}
+
+// 全部格子的坐标表（供特效层复用，与格子渲染同一来源）
+const posMap = computed(() => {
+  const m = {}
+  for (const t of TILES) if (t) m[t.id] = tilePosition(t.id)
+  return m
+})
 
 const tiles = computed(() => TILES.filter(Boolean))
 
@@ -120,7 +135,7 @@ function onTile(t) {
 </script>
 
 <template>
-  <div class="board">
+  <div class="board" :class="{ 'board--shake': shaking }">
     <svg class="board__bg" viewBox="0 0 100 88" preserveAspectRatio="none" aria-hidden="true">
       <!-- 三大区域底色 -->
       <path v-for="rg in REGIONS" :key="rg.name" :d="rg.d" fill="currentColor" class="region" :style="{ color: rg.color }" />
@@ -181,6 +196,9 @@ function onTile(t) {
         </i>
       </span>
     </div>
+
+    <!-- 漫画特效层 -->
+    <BoardFx :state="state" :last-move="lastMove" :pos-map="posMap" @boom="onBoom" />
   </div>
 </template>
 
@@ -276,6 +294,20 @@ function onTile(t) {
   box-shadow: 4px 4px 0 0 var(--ink);
   z-index: 8;
   transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+/* 震屏（炸弹/核弹/怪兽） */
+.board--shake {
+  animation: board-shake 0.45s ease both;
+}
+
+@keyframes board-shake {
+  0%, 100% { transform: translate(0, 0); }
+  15% { transform: translate(-6px, 3px) rotate(-0.4deg); }
+  30% { transform: translate(5px, -4px) rotate(0.4deg); }
+  45% { transform: translate(-4px, 2px); }
+  60% { transform: translate(3px, -2px); }
+  75% { transform: translate(-2px, 1px); }
 }
 
 .tile__name {
