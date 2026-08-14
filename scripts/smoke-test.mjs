@@ -74,10 +74,10 @@ console.log('▶ 过起点发工资（绕城回朝天门 +300）')
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   const a = s.players[0]
-  a.pos = 50 // 洪崖洞（朝天门 50 的前一格）
+  a.pos = 49 // 解放碑（新拓扑：解放碑 next=1，是朝天门的前一格）
   a.money = 1000
   const before = a.money
-  const r = movePlayer(s, a, 1, aiChooseFork, 50)
+  const r = movePlayer(s, a, 1, aiChooseFork, 49)
   check('走 1 步到达朝天门(id 1)', a.pos === 1 && r.paused === false)
   check('回到朝天门领取工资 +300', a.money === before + 300)
 }
@@ -262,9 +262,9 @@ console.log('▶ 转向卡反向移动（方向 bug 回归）')
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   const a = s.players[0]
-  a.pos = 3 // 上新街，反向走 3→2→1（主环连续，无分岔干扰）
+  a.pos = 2 // 弹子石，新拓扑反向走 2→50(洪崖洞)→1（洪崖洞 next=2，解放碑 next=1，主环连续无分岔）
   a.direction = -1
-  const r = movePlayer(s, a, 2, null, 3)
+  const r = movePlayer(s, a, 2, null, 2)
   check('反向移动 2 步到达 1', r.paused === false && a.pos === 1)
 }
 

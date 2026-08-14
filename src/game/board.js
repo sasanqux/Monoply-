@@ -44,7 +44,7 @@ export const VEHICLE_ORDER = ['walk', 'bike', 'moto', 'car', 'plane']
 // 52 格（索引 = 格子 id，1-52；id 1 = 朝天门起点）
 export const TILES = [
   null,
-  { id: 1, type: "start", name: "\u671d\u5929\u95e8", col: 8, row: 3, w: 1, h: 3, icon: "flag", next: 2, forks: [50, 49], },
+  { id: 1, type: "start", name: "\u671d\u5929\u95e8", col: 8, row: 3, w: 1, h: 3, icon: "flag", next: 50, forks: [50, 49], },
   { id: 2, type: "land", name: "\u5f39\u5b50\u77f3", group: "g4 \u5357\u5cb8\u6ee8\u6c5f", price: 700, rent: 140, col: 9, row: 3, w: 1, h: 1, icon: "house", next: 3, },
   { id: 3, type: "land", name: "\u4e0a\u65b0\u8857", group: "g4 \u5357\u5cb8\u6ee8\u6c5f", price: 700, rent: 140, col: 9, row: 4, w: 1, h: 1, icon: "house", next: 4, },
   { id: 4, type: "land", name: "\u5357\u5c71", group: "g4 \u5357\u5cb8\u6ee8\u6c5f", price: 700, rent: 140, col: 9, row: 5, w: 1, h: 1, icon: "house", next: 5, },
@@ -92,8 +92,8 @@ export const TILES = [
   { id: 46, type: "land", name: "\u83dc\u56ed\u575d", group: "g1 \u6e1d\u4e2d\u6838\u5fc3", price: 700, rent: 140, col: 4, row: 5, w: 1, h: 1, icon: "house", next: 47, },
   { id: 47, type: "scenic", name: "\u5927\u793c\u5802", group: "g1 \u6e1d\u4e2d\u6838\u5fc3", price: 900, rent: 180, col: 5, row: 5, w: 1, h: 1, icon: "tree", next: 48, },
   { id: 48, type: "land", name: "\u8f83\u573a\u53e3", group: "g1 \u6e1d\u4e2d\u6838\u5fc3", price: 700, rent: 140, col: 6, row: 5, w: 1, h: 1, icon: "house", next: 49, },
-  { id: 49, type: "mall", name: "\u89e3\u653e\u7891", group: "g1 \u6e1d\u4e2d\u6838\u5fc3", price: 2100, rent: 420, col: 7, row: 5, w: 1, h: 1, icon: "shop", next: 50, },
-  { id: 50, type: "scenic", name: "\u6d2a\u5d16\u6d1e", group: "g1 \u6e1d\u4e2d\u6838\u5fc3", price: 900, rent: 180, col: 7, row: 3, w: 1, h: 1, icon: "tree", next: 1, },
+  { id: 49, type: "mall", name: "\u89e3\u653e\u7891", group: "g1 \u6e1d\u4e2d\u6838\u5fc3", price: 2100, rent: 420, col: 7, row: 5, w: 1, h: 1, icon: "shop", next: 1, },
+  { id: 50, type: "scenic", name: "\u6d2a\u5d16\u6d1e", group: "g1 \u6e1d\u4e2d\u6838\u5fc3", price: 900, rent: 180, col: 7, row: 3, w: 1, h: 1, icon: "tree", next: 2, },
   { id: 51, type: "land", name: "\u8881\u5bb6\u5c97", group: "g5 \u4e5d\u9f99\u5546\u4e1a", price: 700, rent: 140, col: 2, row: 7, w: 1, h: 1, icon: "house", next: 52, },
   { id: 52, type: "land", name: "\u5927\u576a", group: "g5 \u4e5d\u9f99\u5546\u4e1a", price: 700, rent: 140, col: 2, row: 6, w: 1, h: 1, icon: "house", next: 44, },
 ]
@@ -107,9 +107,9 @@ export function tilePosition(id) {
   return { x: +x.toFixed(2), y: +y.toFixed(2) }
 }
 
-// 外圈主环折线（供 Board 画路径线）
+// 外圈主环折线（供 Board 画路径线）——按实际走格顺序：朝天门→洪崖洞→弹子石→…→解放碑→朝天门
 export const PATH_POLYLINE = (() => {
-  const ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]  // 1..50 外圈主环
+  const ids = [1, 50, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]  // 走格环：1→50→2…→49→1
   return ids.map((i) => { const p = tilePosition(i); return p.x + ',' + p.y }).join(' ')
 })()
 

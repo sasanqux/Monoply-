@@ -57,7 +57,7 @@ export function movePlayer(state, player, steps, chooser, cameFrom) {
       nextId = predecessorOf(player.pos)
     } else if (cur.forks && cur.forks.length) {
       // 分岔格：排除来路后的可选方向
-      // 朝天门：分岔选项只取 forks（洪崖洞/解放碑），不含直行 next（弹子石外圈固定方向）
+      // 朝天门：分岔选项只取 forks（洪崖洞/解放碑），直行 next 已指向洪崖洞(左)，不额外加入 fork 选项
       const opts =
         cur.id === START_ID
           ? [...new Set(cur.forks)].filter((o) => o !== came)
