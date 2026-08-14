@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import SetupPanel from './components/SetupPanel.vue'
 import Board from './components/Board.vue'
 import ActionPanel from './components/ActionPanel.vue'
@@ -8,6 +8,7 @@ import BagsBar from './components/BagsBar.vue'
 import MyPanelModal from './components/MyPanelModal.vue'
 import ResultOverlay from './components/ResultOverlay.vue'
 import LandInfoModal from './components/LandInfoModal.vue'
+import DiceThrow from './components/DiceThrow.vue'
 import ComicIcon from './components/ComicIcon.vue'
 import { createInitialState, gameReducer, aiDecide, currentPlayer, TILES, isPropertyTile, isBridge, cardTargetKind } from './game/index.js'
 
@@ -20,6 +21,11 @@ const animating = ref(false) // 掷骰/走格动画播放中（期间暂不显�
 let aiTimer = null
 let animTimer = null
 
+// ===== 可拿取骰子 =====
+const boardEl = ref(null)          // 棋盘 DOM（DiceThrow 算落点）
+const diceThrowing = ref(false)   // 玩家投掷动画播放中（期间 BoardFx 不播骰子动画）
+const diceRolled = ref(false)     // 本回合已投掷（防止重投）
+
 // 卡牌/道具目标选择模式
 const selecting = ref(null) // { type:'card'|'item', id, mode:'tile'|'player'|'swap', swapStep, myTile }
 const dicePicker = ref(false)
@@ -31,6 +37,9 @@ function startGame(opts) {
   lastOpts.value = { ...opts }
   lastMove.value = null
   animating.value = false
+  diceThrowing.value = false
+  diceRolled.value = false
+  pendingMove.value = null
   clearTimeout(animTimer)
   const players = []
   for (let i = 0; i < opts.players; i++) {
@@ -71,6 +80,62 @@ function dispatch(action) {
   scheduleAI()
 }
 
+// ===== 可拿取骰子回调 =====
+const pendingMove = ref(null) // 投掷期间暂存的走格路径，settle 时放行
+
+// 松手瞬间：骰子已飞向棋盘，此时生成本回合点数（dispatch ROLL_DICE），但走格动画等骰子定格后再放行
+function onDiceThrow() {
+  if (!state.value || state.value.status !== 'playing') return
+  if (diceRolled.value) return
+  const cur = currentPlayer(state.value)
+  if (!cur || cur.isAI || state.value.phase !== 'roll') return
+  diceRolled.value = true
+  diceThrowing.value = true
+  const prevPos = state.value.players.map((p) => p.pos)
+  const prevDir = state.value.players.map((p) => p.direction ?? 1)
+  state.value = gameReducer(state.value, { type: 'ROLL_DICE' })
+  const paths = state.value.players.map((pl, i) => {
+    if (prevPos[i] === pl.pos) return null
+    const dir = prevDir[i] === -1 ? -1 : 1
+    const path = []
+    let cur = prevPos[i]
+    while (cur !== pl.pos) {
+      cur = ((cur - 1 + dir + 48) % 48) + 1
+      path.push(cur)
+    }
+    return { pid: pl.id, path: [prevPos[i], ...path] }
+  }).filter(Boolean)
+  pendingMove.value = {
+    paths,
+    n: (lastMove.value?.n ?? 0) + 1,
+  }
+  scheduleAI()
+}
+
+// 骰子定格完成：放行走格动画（此时玩家已看清点数）
+function onDiceSettle() {
+  diceThrowing.value = false
+  if (pendingMove.value) {
+    lastMove.value = pendingMove.value
+    pendingMove.value = null
+    const pl = lastMove.value.paths
+    if (pl.length) {
+      animating.value = true
+      const animMs = 4400 + Math.max(...pl.map((p) => p.path.length)) * 400 + 500
+      clearTimeout(animTimer)
+      animTimer = setTimeout(() => { animating.value = false }, animMs)
+    }
+  }
+}
+
+// 新回合开始时重置"已投掷"标记
+watch(
+  () => state.value?.dice,
+  (dice, prev) => {
+    if (prev && !dice) diceRolled.value = false
+  }
+)
+
 function scheduleAI() {
   const st = state.value
   if (!st || st.status !== 'playing') return
@@ -90,6 +155,17 @@ function scheduleAI() {
 
 const cur = computed(() => (state.value ? currentPlayer(state.value) : null))
 const isMyTurn = computed(() => cur.value && !cur.value.isAI)
+
+// 当前是否可投掷骰子：轮到我 + 掷骰阶段 + 本回合未投过 + 非选择目标模式
+const canThrowDice = computed(() => {
+  const st = state.value
+  if (!st || st.status !== 'playing') return false
+  if (!isMyTurn.value) return false
+  if (st.phase !== 'roll') return false
+  if (diceRolled.value) return false
+  if (selecting.value) return false
+  return true
+})
 
 // ===== 选择模式 =====
 const selectableTiles = computed(() => {
@@ -269,14 +345,17 @@ const selectHint = computed(() => {
             <button class="btn-comic btn-comic--sm btn-comic--ghost" @click="cancelSelect">取消</button>
           </div>
           <div class="board-wrap">
-            <Board
-              :state="state"
-              :current="cur"
-              :selectable="selectableTiles"
-              :last-move="lastMove"
-              @tile-click="onTileClick"
-              @tile-info="openTileInfo"
-            />
+            <div ref="boardEl" class="board-anchor">
+              <Board
+                :state="state"
+                :current="cur"
+                :selectable="selectableTiles"
+                :last-move="lastMove"
+                :hide-pawns="diceThrowing"
+                @tile-click="onTileClick"
+                @tile-info="openTileInfo"
+              />
+            </div>
           </div>
           <ActionPanel :state="state" :current="cur" :is-my-turn="isMyTurn" :animating="animating" @dispatch="dispatch" @metro="startMetro" />
         </main>
@@ -315,6 +394,16 @@ const selectHint = computed(() => {
       </div>
 
       <ResultOverlay v-if="state.status === 'finished'" :state="state" @again="startGame(lastOpts)" />
+
+      <!-- 可拿取骰子（轮到我时拖到棋盘扔出去） -->
+      <DiceThrow
+        v-if="canThrowDice || diceThrowing"
+        :can-throw="canThrowDice"
+        :final-dice="state.dice || undefined"
+        :board-el="boardEl"
+        @throw="onDiceThrow"
+        @settle="onDiceSettle"
+      />
 
       <!-- 地块详情弹窗 -->
       <LandInfoModal

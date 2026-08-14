@@ -8,6 +8,7 @@ const props = defineProps({
   state: Object,
   lastMove: Object, // { paths: [{ pid, path: [格id...] }], n } — 由 App 计算移动路径
   posMap: Object, // { [tileId]: { x, y } }
+  suppressDice: Boolean, // 玩家手动投掷骰子时，抑制自动骰子动画（避免双重骰子）
 })
 const emit = defineEmits(['boom', 'walking'])
 
@@ -35,6 +36,7 @@ watch(
   () => props.state?.dice,
   (dice) => {
     if (!dice) return
+    if (props.suppressDice) return // 玩家手动投掷中，跳过自动骰子动画
     const id = ++diceSeq
     const final = [...dice]
     // show = 当前显示的点数（滚动期间随机跳，定格后 = 最终点数）

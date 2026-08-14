@@ -50,14 +50,11 @@ const statusText = computed(() => {
     </div>
 
     <div v-if="isMyTurn" class="actions__btns">
-      <button
-        v-if="state.phase === 'roll'"
-        class="btn-comic"
-        :disabled="animating"
-        @click="emit('dispatch', { type: 'ROLL_DICE' })"
-      >
-        掷骰子
-      </button>
+      <!-- 掷骰阶段：骰子实体在棋盘下方，可拖拽投掷 -->
+      <template v-if="state.phase === 'roll'">
+        <span v-if="animating" class="actions__roll-hint">🎲 骰子飞行中…</span>
+        <span v-else class="actions__roll-hint">拖起下面的骰子，扔到棋盘上</span>
+      </template>
 
       <template v-else-if="state.phase === 'landed'">
         <template v-if="pendingTile">
@@ -134,6 +131,22 @@ const statusText = computed(() => {
   font-weight: 900;
   opacity: 0.65;
   font-style: italic;
+}
+
+.actions__roll-hint {
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--pop-red);
+  background: #fff3c4;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  padding: 6px 12px;
+  animation: roll-hint 1.1s ease-in-out infinite;
+}
+
+@keyframes roll-hint {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
 }
 
 .legend {

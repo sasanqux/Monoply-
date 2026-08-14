@@ -9,6 +9,7 @@ const props = defineProps({
   current: Object,
   selectable: { type: Array, default: () => [] },
   lastMove: Object, // 由 App 传入：{ prevPos, nextPos }
+  hidePawns: Boolean, // 投掷骰子动画期间隐藏所有真实棋子（等走格动画接管）
 })
 const emit = defineEmits(['tileClick', 'upgrade', 'tileInfo'])
 
@@ -199,7 +200,7 @@ function onTile(t) {
           v-for="p in playersOn(t.id)"
           :key="p.id"
           class="pawn"
-          :class="{ 'pawn--moving': movingPids.has(p.id) }"
+          :class="{ 'pawn--moving': movingPids.has(p.id) || hidePawns }"
           :style="{ background: p.color }"
         >
           <em v-if="p.vehicle !== 'walk'" class="pawn__veh"><ComicIcon :name="p.vehicle === 'bike' ? 'bike' : p.vehicle === 'moto' ? 'moto' : p.vehicle === 'car' ? 'car' : 'plane'" :size="11" /></em>
@@ -208,7 +209,7 @@ function onTile(t) {
     </div>
 
     <!-- 漫画特效层 -->
-    <BoardFx :state="state" :last-move="lastMove" :pos-map="posMap" @boom="onBoom" @walking="onWalking" />
+    <BoardFx :state="state" :last-move="lastMove" :pos-map="posMap" :suppress-dice="hidePawns" @boom="onBoom" @walking="onWalking" />
   </div>
 </template>
 
