@@ -39,10 +39,22 @@ function startGame(opts) {
 function dispatch(action) {
   if (!state.value || state.value.status !== 'playing') return
   const prevPos = state.value.players.map((p) => p.pos)
+  const prevDir = state.value.players.map((p) => p.direction ?? 1)
   state.value = gameReducer(state.value, action)
+  // 计算每个移动玩家的逐格路径（供棋子走格动画）
+  const paths = state.value.players.map((pl, i) => {
+    if (prevPos[i] === pl.pos) return null
+    const dir = prevDir[i] === -1 ? -1 : 1
+    const path = []
+    let cur = prevPos[i]
+    while (cur !== pl.pos) {
+      cur = ((cur - 1 + dir + 48) % 48) + 1
+      path.push(cur)
+    }
+    return { pid: pl.id, path: [prevPos[i], ...path] }
+  }).filter(Boolean)
   lastMove.value = {
-    prevPos,
-    nextPos: state.value.players.map((p) => p.pos),
+    paths,
     n: (lastMove.value?.n ?? 0) + 1,
   }
   scheduleAI()
@@ -53,7 +65,11 @@ function scheduleAI() {
   if (!st || st.status !== 'playing') return
   const cur = currentPlayer(st)
   if (!cur.isAI) return
-  const delay = st.phase === 'roll' ? 900 : 400
+  // AI 行动延迟 = 基础延迟 + 走格动画时长（让玩家看清棋子走动）
+  const walkTime = lastMove.value?.paths?.length
+    ? Math.max(...lastMove.value.paths.map((p) => p.path.length)) * 200
+    : 0
+  const delay = (st.phase === 'roll' ? 900 : 400) + walkTime
   clearTimeout(aiTimer)
   aiTimer = setTimeout(() => {
     const action = aiDecide(state.value, cur.id)

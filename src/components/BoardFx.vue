@@ -1,15 +1,18 @@
 <script setup>
-// BoardFx.vue — 棋盘漫画特效层（掷骰 / 棋子飞行 / 拟声词 / 震屏）
+// BoardFx.vue — 棋盘漫画特效层（掷骰 / 棋子逐格走动 / 拟声词 / 震屏）
 // 纯表现层：不碰游戏规则，坐标与棋盘 tilePosition 对齐（0-100 百分比）
 import { ref, watch } from 'vue'
 import ComicIcon from './ComicIcon.vue'
 
 const props = defineProps({
   state: Object,
-  lastMove: Object, // { prevPos: [], nextPos: [] } — 由 App 在每次 dispatch 前记录
+  lastMove: Object, // { paths: [{ pid, path: [格id...] }], n } — 由 App 计算移动路径
   posMap: Object, // { [tileId]: { x, y } }
 })
-const emit = defineEmits(['boom'])
+const emit = defineEmits(['boom', 'walking'])
+
+// 当前正在走动的玩家集合（通知 Board 隐藏真实棋子，避免"两个棋子"）
+const walkingPids = ref(new Set())
 
 // ===== 掷骰动画 =====
 const diceFx = ref(null)
@@ -21,30 +24,49 @@ watch(
     diceFx.value = { dice: [...dice], id: ++diceSeq }
     setTimeout(() => {
       if (diceFx.value?.id === diceSeq) diceFx.value = null
-    }, 1500)
+    }, 1900)
   }
 )
 
-// ===== 棋子飞行 =====
-const flyers = ref([])
-let flySeq = 0
+// ===== 棋子逐格走动 =====
+const walkers = ref([])
+let walkSeq = 0
+function syncWalking() {
+  const pids = new Set()
+  for (const w of walkers.value) pids.add(w.pid)
+  walkingPids.value = pids
+  emit('walking', [...pids])
+}
 watch(
   () => props.lastMove,
   (mv) => {
     if (!mv || !props.state) return
-    for (let i = 0; i < mv.prevPos.length; i++) {
-      const from = mv.prevPos[i]
-      const to = mv.nextPos[i]
-      if (from === to) continue
-      const pl = props.state.players[i]
+    const plByPid = {}
+    for (const p of props.state.players) plByPid[p.id] = p
+    for (const w of mv.paths || []) {
+      const pl = plByPid[w.pid]
       if (!pl || !pl.alive) continue
-      const f = props.posMap?.[from] ?? { x: 50, y: 50 }
-      const t = props.posMap?.[to] ?? { x: 50, y: 50 }
-      const key = ++flySeq
-      flyers.value.push({ key, from: f, to: t, color: pl.color, veh: pl.vehicle })
-      setTimeout(() => {
-        flyers.value = flyers.value.filter((fl) => fl.key !== key)
-      }, 900)
+      const key = ++walkSeq
+      const wobj = {
+        key,
+        pid: pl.id,
+        color: pl.color,
+        veh: pl.vehicle,
+        path: w.path,
+        seg: 0,
+      }
+      walkers.value.push(wobj)
+      syncWalking()
+      // 逐格走动：每格 0.2s
+      const stepMs = 200
+      const timer = setInterval(() => {
+        wobj.seg += 1
+        if (wobj.seg >= wobj.path.length) {
+          clearInterval(timer)
+          walkers.value = walkers.value.filter((x) => x.key !== key)
+          syncWalking()
+        }
+      }, stepMs)
     }
   },
   { deep: true }
@@ -108,36 +130,34 @@ watch(
   <div class="fx" aria-hidden="true">
     <!-- 掷骰大骰子 -->
     <div v-if="diceFx" :key="diceFx.id" class="fx__dice-wrap">
-      <span v-for="(d, i) in diceFx.dice" :key="i" class="fx__dice" :style="{ animationDelay: (i * 0.12) + 's' }">
-        <ComicIcon name="dice" :size="46" />
+      <span v-for="(d, i) in diceFx.dice" :key="i" class="fx__dice" :style="{ animationDelay: (i * 0.15) + 's' }">
+        <ComicIcon name="dice" :size="58" />
         <b class="fx__dice-num">{{ d }}</b>
       </span>
     </div>
 
-    <!-- 飞行棋子 -->
+    <!-- 逐格走动的棋子 -->
     <span
-      v-for="fl in flyers"
-      :key="fl.key"
-      class="fx__flyer"
+      v-for="w in walkers"
+      :key="w.key"
+      class="fx__walker"
       :style="{
-        '--fx-from-x': fl.from.x + '%',
-        '--fx-from-y': fl.from.y + '%',
-        '--fx-to-x': fl.to.x + '%',
-        '--fx-to-y': fl.to.y + '%',
-        background: fl.color,
+        left: (props.posMap?.[w.path[w.seg]]?.x ?? 50) + '%',
+        top: (props.posMap?.[w.path[w.seg]]?.y ?? 50) + '%',
+        background: w.color,
       }"
     >
-      <ComicIcon v-if="fl.veh !== 'walk'" :name="fl.veh" :size="14" class="fx__flyer-veh" />
+      <ComicIcon v-if="w.veh !== 'walk'" :name="w.veh" :size="15" class="fx__walker-veh" />
     </span>
 
     <!-- 拟声词 -->
     <span
-      v-for="w in words"
-      :key="w.id"
+      v-for="wd in words"
+      :key="wd.id"
       class="fx__word"
-      :style="{ left: w.x + '%', top: w.y + '%', transform: 'rotate(' + w.rot + 'deg)', '--wcolor': w.color }"
+      :style="{ left: wd.x + '%', top: wd.y + '%', transform: 'rotate(' + wd.rot + 'deg)', '--wcolor': wd.color }"
     >
-      {{ w.text }}
+      {{ wd.text }}
     </span>
   </div>
 </template>
@@ -155,21 +175,21 @@ watch(
 .fx__dice-wrap {
   position: absolute;
   left: 50%;
-  top: 38%;
+  top: 34%;
   transform: translate(-50%, -50%);
   display: flex;
-  gap: 14px;
+  gap: 18px;
   z-index: 25;
 }
 
 .fx__dice {
   position: relative;
-  width: 52px;
-  height: 52px;
+  width: 66px;
+  height: 66px;
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: dice-drop 0.55s cubic-bezier(0.3, 1.6, 0.5, 1) both, dice-land 0.5s 0.55s ease both, dice-fade 0.3s 1.15s ease both;
+  animation: dice-drop 0.7s cubic-bezier(0.3, 1.6, 0.5, 1) both, dice-land 0.6s 0.7s ease both, dice-fade 0.35s 1.5s ease both;
 }
 
 .fx__dice-num {
@@ -177,81 +197,54 @@ watch(
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 20px;
+  font-size: 26px;
   font-weight: 900;
   color: var(--ink);
   z-index: 2;
-  text-shadow: 0 0 2px #fff, 0 0 3px #fff;
+  text-shadow: 0 0 3px #fff, 0 0 4px #fff;
 }
 
 @keyframes dice-drop {
-  0% { transform: translateY(-160px) rotate(-300deg); opacity: 0; }
-  70% { transform: translateY(14px) rotate(18deg); opacity: 1; }
+  0% { transform: translateY(-200px) rotate(-320deg); opacity: 0; }
+  70% { transform: translateY(18px) rotate(20deg); opacity: 1; }
   100% { transform: translateY(0) rotate(0deg); opacity: 1; }
 }
 
 @keyframes dice-land {
   0%, 100% { transform: translateY(0) scale(1); }
-  30% { transform: translateY(-16px) scale(1.06, 0.94); }
+  30% { transform: translateY(-22px) scale(1.08, 0.92); }
   60% { transform: translateY(0) scale(1); }
-  80% { transform: translateY(-7px) scale(1.03, 0.97); }
+  80% { transform: translateY(-10px) scale(1.04, 0.96); }
 }
 
 @keyframes dice-fade {
-  to { opacity: 0; transform: translateY(10px) scale(0.85); }
+  to { opacity: 0; transform: translateY(14px) scale(0.8); }
 }
 
-/* ===== 飞行棋子 ===== */
-.fx__flyer {
+/* ===== 逐格走动的棋子 ===== */
+.fx__walker {
   position: absolute;
-  width: 15px;
-  height: 15px;
+  width: 17px;
+  height: 17px;
   border-radius: 50%;
   border: 2.5px solid var(--ink);
   box-shadow: 2px 2px 0 0 rgba(26, 26, 26, 0.75);
+  transform: translate(-50%, -50%);
   z-index: 24;
-  animation: fly 0.8s cubic-bezier(0.25, 0.8, 0.35, 1) both;
+  /* 每格 0.2s 平滑滑动 + 落地小弹跳 */
+  transition: left 0.2s ease, top 0.2s ease;
+  animation: walker-hop 0.4s ease infinite alternate;
 }
 
-.fx__flyer-veh {
+.fx__walker-veh {
   position: absolute;
-  top: -9px;
+  top: -11px;
   left: 50%;
   transform: translateX(-50%);
 }
 
-@keyframes fly {
-  0% { left: var(--fx-from-x); top: var(--fx-from-y); transform: translate(-50%, -50%) scale(0.6); opacity: 0.9; }
-  40% { transform: translate(-50%, -50%) scale(1.25); }
-  55% { left: var(--fx-to-x); top: var(--fx-to-y); transform: translate(-50%, -58%); }
-  62% { left: var(--fx-to-x); top: var(--fx-to-y); transform: translate(-50%, -50%) scale(1); }
-  100% { left: var(--fx-to-x); top: var(--fx-to-y); transform: translate(-50%, -50%) scale(1); opacity: 0; }
-}
-
-/* ===== 拟声词 ===== */
-.fx__word {
-  position: absolute;
-  transform-origin: center;
-  font-size: clamp(26px, 5.5cqw, 52px);
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  font-style: italic;
-  color: var(--wcolor);
-  -webkit-text-stroke: 2.5px var(--ink);
-  paint-order: stroke fill;
-  text-shadow: 4px 4px 0 rgba(26, 26, 26, 0.85);
-  animation: word-pop 1.05s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
-  z-index: 26;
-  white-space: nowrap;
-}
-
-@keyframes word-pop {
-  0% { transform: scale(0.2) rotate(0deg); opacity: 0; }
-  18% { transform: scale(1.35); opacity: 1; }
-  32% { transform: scale(0.95); }
-  45% { transform: scale(1.12); }
-  58% { transform: scale(1); opacity: 1; }
-  85% { transform: scale(1.02) translateY(-6px); opacity: 1; }
-  100% { transform: scale(0.9) translateY(-22px); opacity: 0; }
+@keyframes walker-hop {
+  from { margin-top: 0; }
+  to { margin-top: -5px; }
 }
 </style>

@@ -13,9 +13,13 @@ const props = defineProps({
 const emit = defineEmits(['tileClick', 'upgrade', 'tileInfo'])
 
 const shaking = ref(false)
+const movingPids = ref(new Set()) // 正在走格动画的玩家（隐藏真实棋子，避免双影）
 function onBoom() {
   shaking.value = true
   setTimeout(() => (shaking.value = false), 450)
+}
+function onWalking(pids) {
+  movingPids.value = new Set(pids)
 }
 
 // 全部格子的坐标表（供特效层复用，与格子渲染同一来源）
@@ -191,14 +195,20 @@ function onTile(t) {
       </span>
 
       <span class="tile__pawns">
-        <i v-for="p in playersOn(t.id)" :key="p.id" class="pawn" :style="{ background: p.color }">
+        <i
+          v-for="p in playersOn(t.id)"
+          :key="p.id"
+          class="pawn"
+          :class="{ 'pawn--moving': movingPids.has(p.id) }"
+          :style="{ background: p.color }"
+        >
           <em v-if="p.vehicle !== 'walk'" class="pawn__veh"><ComicIcon :name="p.vehicle === 'bike' ? 'bike' : p.vehicle === 'moto' ? 'moto' : p.vehicle === 'car' ? 'car' : 'plane'" :size="11" /></em>
         </i>
       </span>
     </div>
 
     <!-- 漫画特效层 -->
-    <BoardFx :state="state" :last-move="lastMove" :pos-map="posMap" @boom="onBoom" />
+    <BoardFx :state="state" :last-move="lastMove" :pos-map="posMap" @boom="onBoom" @walking="onWalking" />
   </div>
 </template>
 
@@ -371,6 +381,11 @@ function onTile(t) {
   border-radius: 50%;
   border: 1.5px solid var(--ink);
   box-shadow: 0.5px 0.5px 0 0 rgba(26, 26, 26, 0.7);
+}
+
+/* 走格动画期间隐藏真实棋子（动画棋子代替它移动） */
+.pawn--moving {
+  opacity: 0;
 }
 
 .pawn__veh {
