@@ -21,11 +21,13 @@ watch(
   () => props.state?.dice,
   (dice) => {
     if (!dice) return
-    diceFx.value = { dice: [...dice], id: ++diceSeq }
-    // 骰子动画总时长约 3s（下落→弹跳→停留展示→淡出），让玩家看清点数
+    const sum = dice.reduce((a, b) => a + b, 0)
+    diceFx.value = { dice: [...dice], sum, id: ++diceSeq }
+    // 骰子动画总时长约 4.4s：下落 0.8s → 弹跳 0.9s → 静止展示 2.3s → 淡出 0.4s
+    // 关键是弹跳结束后有 2.3s 静止定格，让玩家看清点数与合计
     setTimeout(() => {
       if (diceFx.value?.id === diceSeq) diceFx.value = null
-    }, 3000)
+    }, 4400)
   }
 )
 
@@ -58,9 +60,9 @@ watch(
       }
       walkers.value.push(wobj)
       syncWalking()
-      // 逐格走动：每格 0.32s（通过响应式数组取代理对象修改 seg，触发重渲染）
-      // 走完后再停留 0.4s 展示落点，然后移除动画棋子
-      const stepMs = 320
+      // 逐格走动：每格 0.4s（通过响应式数组取代理对象修改 seg，触发重渲染）
+      // 走完后再停留 0.5s 展示落点，然后移除动画棋子
+      const stepMs = 400
       const timer = setInterval(() => {
         const w = walkers.value.find((x) => x.key === key)
         if (!w) { clearInterval(timer); return }
@@ -70,7 +72,7 @@ watch(
           setTimeout(() => {
             walkers.value = walkers.value.filter((x) => x.key !== key)
             syncWalking()
-          }, 400)
+          }, 500)
         }
       }, stepMs)
     }
@@ -137,9 +139,10 @@ watch(
     <!-- 掷骰大骰子 -->
     <div v-if="diceFx" :key="diceFx.id" class="fx__dice-wrap">
       <span v-for="(d, i) in diceFx.dice" :key="i" class="fx__dice" :style="{ animationDelay: (i * 0.15) + 's' }">
-        <ComicIcon name="dice" :size="58" />
+        <ComicIcon name="dice" :size="76" />
         <b class="fx__dice-num">{{ d }}</b>
       </span>
+      <span class="fx__dice-sum">= {{ diceFx.sum }}</span>
     </div>
 
     <!-- 逐格走动的棋子 -->
@@ -181,21 +184,28 @@ watch(
 .fx__dice-wrap {
   position: absolute;
   left: 50%;
-  top: 30%;
+  top: 34%;
   transform: translate(-50%, -50%);
   display: flex;
-  gap: 22px;
+  align-items: center;
+  gap: 16px;
+  background: rgba(255, 254, 240, 0.92);
+  border: 4px solid var(--ink);
+  border-radius: 14px;
+  box-shadow: 5px 5px 0 0 var(--ink);
+  padding: 14px 20px;
   z-index: 25;
 }
 
 .fx__dice {
   position: relative;
-  width: 76px;
-  height: 76px;
+  width: 84px;
+  height: 84px;
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: dice-drop 0.9s cubic-bezier(0.3, 1.6, 0.5, 1) both, dice-land 1.1s 0.9s ease both, dice-fade 0.45s 2.5s ease both;
+  /* 下落 0.8s → 弹跳 0.9s → 静止到 4.0s → 淡出 0.4s；静止展示 2.3s 让玩家读清点数 */
+  animation: dice-drop 0.8s cubic-bezier(0.3, 1.6, 0.5, 1) both, dice-land 0.9s 0.8s ease both, dice-fade 0.4s 4s ease both;
 }
 
 .fx__dice-num {
@@ -203,11 +213,32 @@ watch(
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 30px;
+  font-size: 34px;
   font-weight: 900;
   color: var(--ink);
   z-index: 2;
   text-shadow: 0 0 3px #fff, 0 0 4px #fff;
+}
+
+/* 点数合计（"= 7"大字，弹跳结束后才显现） */
+.fx__dice-sum {
+  align-self: center;
+  margin: 0 4px;
+  font-size: 44px;
+  font-weight: 900;
+  font-style: italic;
+  color: var(--pop-red);
+  -webkit-text-stroke: 2.5px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 4px 4px 0 rgba(26, 26, 26, 0.8);
+  animation: dice-sum-in 0.3s 1.7s ease both;
+  white-space: nowrap;
+}
+
+@keyframes dice-sum-in {
+  0% { transform: scale(0.3) rotate(-8deg); opacity: 0; }
+  70% { transform: scale(1.3) rotate(4deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
 }
 
 @keyframes dice-drop {

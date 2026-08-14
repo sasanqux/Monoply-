@@ -61,10 +61,10 @@ function dispatch(action) {
     paths,
     n: (lastMove.value?.n ?? 0) + 1,
   }
-  // 有走格动画时，动画期间锁住操作按钮（骰子 3s + 走格 0.32s/格 + 落地 0.4s）
+  // 有走格动画时，动画期间锁住操作按钮（骰子 4.4s + 走格 0.4s/格 + 落地 0.5s）
   if (paths.length) {
     animating.value = true
-    const animMs = Math.max(...paths.map((p) => p.path.length)) * 320 + 400 + 3000
+    const animMs = 4400 + Math.max(...paths.map((p) => p.path.length)) * 400 + 500
     clearTimeout(animTimer)
     animTimer = setTimeout(() => { animating.value = false }, animMs)
   }
@@ -76,9 +76,9 @@ function scheduleAI() {
   if (!st || st.status !== 'playing') return
   const cur = currentPlayer(st)
   if (!cur.isAI) return
-  // AI 行动延迟 = 基础延迟 + 走格动画时长（0.32s/格 + 落地停留 0.4s，让玩家看清棋子走动）
+  // AI 行动延迟 = 基础延迟 + 骰子动画 4.4s + 走格动画时长（0.4s/格 + 落地停留 0.5s，让玩家看清）
   const walkTime = lastMove.value?.paths?.length
-    ? Math.max(...lastMove.value.paths.map((p) => p.path.length)) * 320 + 400
+    ? 4400 + Math.max(...lastMove.value.paths.map((p) => p.path.length)) * 400 + 500
     : 0
   const delay = (st.phase === 'roll' ? 1200 : 600) + walkTime
   clearTimeout(aiTimer)
