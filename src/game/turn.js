@@ -67,7 +67,8 @@ export function handleLanding(state, player) {
       const feeName = isMetro(tile) ? '轻轨使用费' : '租金'
       payMoney(state, player.id, owner.id, fee, `使用 ${owner.name} 的「${tile.name}」支付${feeName}`)
       checkBankrupt(state, player)
-      if (tile.group && isGroupComplete(state, tile.group)) {
+      if (tile.group && isGroupComplete(state, tile.group) && !state.announcedGroups[tile.group]) {
+        state.announcedGroups[tile.group] = true
         state.log.push(`🏙️ 「${GROUPS_OF(tile.group)}」商圈已建成，${owner.name} 坐地收租！`)
       }
     }

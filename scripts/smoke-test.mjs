@@ -212,6 +212,118 @@ console.log('▶ 桥资产')
   check('桥主收到过路费', a.money === 10000 + (before - after))
 }
 
+console.log('▶ 转向卡反向移动（方向 bug 回归）')
+{
+  const s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  const a = s.players[0]
+  a.pos = 3 // 大溪沟 riverEdge，反向走不跨江
+  a.direction = -1 // 转向卡
+  s.closedBridges[4] = 2 // 桥被封
+  a.money = 10000
+  const r = movePlayer(s, a, [1, 1]) // 反向 3→2→1，应不受封桥影响
+  check('反向移动不被江边封桥拦截', r.pos === 1 && r.blocked !== true)
+  // 正向移动仍被拦
+  const s2 = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  const a2 = s2.players[0]
+  a2.pos = 3
+  a2.money = 10000
+  s2.closedBridges[4] = 2
+  const r2 = movePlayer(s2, a2, [1, 1])
+  check('正向移动仍被江边封桥拦截', r2.blocked === true && r2.pos === 3)
+}
+
+console.log('▶ 免罪卡豁免过桥费')
+{
+  const s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  const a = s.players[0] // 桥主
+  const b = s.players[1]
+  a.properties.push(4)
+  a.money = 10000
+  b.money = 5000
+  b.pos = 3
+  b.shield = true // 免罪卡
+  const before = b.money
+  const moved = movePlayer(s, b, [1, 0])
+  check('免罪卡豁免过桥费（现金不变）', b.money === before)
+  check('免罪卡一次性消耗', b.shield === false)
+  check('仍正常到达桥格', moved.pos === 4)
+}
+
+console.log('▶ AI 会用卡/道具/乘轻轨')
+{
+  // 封桥卡
+  let s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  s.players[0].hand = [{ id: 'c1', type: 'closeBridge', name: '封桥卡', desc: '', icon: '' }]
+  s.players[1].properties = [4]
+  s.phase = 'landed'
+  const a1 = aiDecide(s, 'p1')
+  check('AI 持封桥卡且对手有桥 → 用封桥卡', a1?.type === 'USE_CARD' && a1?.target?.tileId === 4)
+  // 拆除卡
+  s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  s.players[0].hand = [{ id: 'c2', type: 'demolish', name: '拆除卡', desc: '', icon: '' }]
+  s.players[1].properties = [20]
+  s.players[1].levels = { 20: 2 }
+  s.phase = 'landed'
+  const a2 = aiDecide(s, 'p1')
+  check('AI 持拆除卡且对手有楼 → 用拆除卡', a2?.type === 'USE_CARD' && a2?.target?.tileId === 20)
+  // 放路障
+  s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  s.players[0].items = [{ id: 'i1', type: 'barrier', name: '路障', desc: '', icon: '' }]
+  s.players[0].properties = [5]
+  s.players[0].levels = { 5: 2 }
+  s.phase = 'landed'
+  const a3 = aiDecide(s, 'p1')
+  check('AI 有路障且有地产 → 放地产前一格', a3?.type === 'USE_ITEM' && a3?.tileId === 4)
+  // 乘轻轨
+  s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  s.players[0].pos = 9
+  s.players[0].money = 2000
+  s.pending = { kind: 'metro', tileId: 9 }
+  s.phase = 'landed'
+  const a4 = aiDecide(s, 'p1')
+  check('AI 在轻轨站有钱 → 乘轻轨', a4?.type === 'TRAVEL_METRO' && TILES[a4.targetTileId]?.type === 'metro')
+  // 轮渡卡（在江边）
+  s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  s.players[0].pos = 3
+  s.players[0].hand = [{ id: 'c5', type: 'ferry', name: '轮渡卡', desc: '', icon: '' }]
+  s.phase = 'landed'
+  const a5 = aiDecide(s, 'p1')
+  check('AI 在江边持轮渡卡 → 用轮渡卡', a5?.type === 'USE_CARD')
+  // 无适用操作
+  s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  s.players[0].hand = [{ id: 'c6', type: 'reverse', name: '转向卡', desc: '', icon: '' }]
+  s.phase = 'landed'
+  const a6 = aiDecide(s, 'p1')
+  check('AI 无适用操作 → 结束回合', a6?.type === 'END_TURN')
+}
+
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`)
 if (fail > 0) process.exit(1)
 console.log('SMOKE OK')

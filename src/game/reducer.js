@@ -32,6 +32,7 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
     winnerId: null,
     closedBridges: {},
     boardItems: [],
+    announcedGroups: {}, // 已提示过"建成"的商圈（防日志刷屏）
     players: players.map((pl, i) => ({
       id: pl.id,
       name: pl.name,

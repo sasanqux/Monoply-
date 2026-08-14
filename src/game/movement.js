@@ -1,6 +1,7 @@
 // movement.js — 逐格移动（过江拦截/桥收费/道具触发）+ 载具掷骰
 import { TILES, nextTileIndex, isBridge, VEHICLES, PASS_START_SALARY, TILE_COUNT } from './board.js'
 import { addMoney, payMoney } from './bank.js'
+import { tryShield } from './card.js'
 import { checkBankrupt } from './gameOver.js'
 
 // 掷骰：骰子数由载具决定（走路 2 / 自行车 3 / 摩托 4 / 汽车 5 / 飞机 6）
@@ -35,8 +36,8 @@ export function movePlayer(state, player, dice) {
   let blocked = false
 
   for (let i = 0; i < steps; i++) {
-    // 1. 过江拦截
-    if (TILES[player.pos].riverEdge && !player.ferry) {
+    // 1. 过江拦截（仅正向；反向移动不跨江，不受桥与封桥约束）
+    if (dir === 1 && TILES[player.pos].riverEdge && !player.ferry) {
       const ni = nextTileIndex(player.pos)
       const nTile = TILES[ni]
       const closed = (state.closedBridges[ni] ?? 0) > 0
@@ -55,14 +56,18 @@ export function movePlayer(state, player, dice) {
       addMoney(state, player.id, PASS_START_SALARY, '绕城一周回到解放碑，领取工资')
     }
 
-    // 4. 到达桥格：收过路费（轮渡免收）
+    // 4. 到达桥格：收过路费（轮渡免收；免罪卡可豁免一次）
     const tile = TILES[player.pos]
     if (isBridge(tile) && !player.ferry) {
       const owner = state.players.find((p) => p.alive && p.properties.includes(tile.id))
       if (owner && owner.id !== player.id) {
-        const toll = tollOf(state, tile, owner)
-        payMoney(state, player.id, owner.id, toll, `过「${tile.name}」交过路费（桥主 ${owner.name}）`)
-        checkBankrupt(state, player)
+        if (tryShield(state, player)) {
+          state.log.push(`🛡️ ${player.name} 的免罪卡生效，豁免「${tile.name}」过路费！`)
+        } else {
+          const toll = tollOf(state, tile, owner)
+          payMoney(state, player.id, owner.id, toll, `过「${tile.name}」交过路费（桥主 ${owner.name}）`)
+          checkBankrupt(state, player)
+        }
         if (!player.alive) break
       }
     }
