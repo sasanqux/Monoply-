@@ -245,9 +245,9 @@ const selectHint = computed(() => {
         <SidePanel :state="state" :current="cur" :selectable-players="selectablePlayers" @player-click="onPlayerClick" />
       </div>
 
-      <div v-if="isMyTurn" class="app__bags">
-        <HandPanel :me="cur" :selecting="selecting" @use-card="useCard" />
-        <ItemPanel :me="cur" @use-item="useItem" />
+      <div class="app__bags">
+        <HandPanel :me="cur" :selecting="selecting" :is-my-turn="isMyTurn" @use-card="useCard" />
+        <ItemPanel :me="cur" :is-my-turn="isMyTurn" @use-item="useItem" />
       </div>
 
       <!-- 遥控骰子点数选择 -->
