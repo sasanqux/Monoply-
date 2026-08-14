@@ -2,9 +2,9 @@
 import { computed } from 'vue'
 import ComicIcon from './ComicIcon.vue'
 import {
-  TILES, GROUPS, SHOPS, isPropertyTile, isBridge, isMetro,
+  TILES, GROUPS, SHOPS, isPropertyTile, isMetro,
   getRent, isGroupComplete, groupTiles, upgradeCost,
-  tollOf, METRO_FEE,
+  METRO_FEE,
 } from '../game/index.js'
 
 const props = defineProps({
@@ -20,9 +20,11 @@ const typeTag = computed(() => {
   switch (t.type) {
     case 'start': return { text: '起点', cls: 'tag-comic--red' }
     case 'land': return t.group ? { text: GROUPS[t.group].name, cls: 'tag-comic--ink' } : { text: '普通地产', cls: 'tag-comic--yellow' }
-    case 'bridge': return { text: '桥梁', cls: 'tag-comic--blue' }
-    case 'metro': return { text: '轻轨站', cls: 'tag-comic--yellow' }
-    case 'event': return { text: t.id === 42 ? '火锅事件' : '事件', cls: 'tag-comic--green' }
+    case 'scenic': return { text: '景点', cls: 'tag-comic--green' }
+    case 'station': return { text: '轻轨站', cls: 'tag-comic--yellow' }
+    case 'mall': return { text: '商圈', cls: 'tag-comic--purple' }
+    case 'corner': return { text: '奖励格', cls: 'tag-comic--yellow' }
+    case 'event': return { text: '事件', cls: 'tag-comic--green' }
     default: return { text: t.type, cls: 'tag-comic--ink' }
   }
 })
@@ -53,20 +55,6 @@ const groupInfo = computed(() => {
     owned,
     total: tiles.length,
     complete: isGroupComplete(props.state, t.group),
-  }
-})
-
-const bridgeInfo = computed(() => {
-  const t = tile.value
-  if (!isBridge(t)) return null
-  const o = owner.value
-  const bridgeCount = o ? o.properties.filter((i) => isBridge(TILES[i])).length : 0
-  const rate = 1 + Math.max(0, bridgeCount - 1) * 0.4
-  return {
-    toll: t.toll,
-    rate,
-    closed: (props.state.closedBridges[t.id] ?? 0) > 0,
-    bridgeCount,
   }
 })
 
@@ -111,7 +99,7 @@ const canUpgrade = computed(() => {
         <span v-if="owner" class="info__owner">
           <i class="info__dot" :style="{ background: owner.color }"></i>{{ owner.name }}
         </span>
-        <span v-else-if="isPropertyTile(tile) || isBridge(tile) || isMetro(tile)" class="info__muted">无主 · 可购买</span>
+        <span v-else-if="isPropertyTile(tile) || isMetro(tile)" class="info__muted">无主 · 可购买</span>
         <span v-else class="info__muted">—</span>
       </div>
 
@@ -151,20 +139,6 @@ const canUpgrade = computed(() => {
         </span>
       </div>
 
-      <!-- 桥 -->
-      <template v-if="bridgeInfo">
-        <div class="info__row">
-          <span class="info__label">过路费</span>
-          <span class="info__val">¥{{ bridgeInfo.toll }}</span>
-          <span v-if="bridgeInfo.bridgeCount > 1" class="info__hint">（拥有 {{ bridgeInfo.bridgeCount }} 座桥，费率 ×{{ bridgeInfo.rate.toFixed(1) }}）</span>
-        </div>
-        <div class="info__row">
-          <span class="info__label">状态</span>
-          <span class="info__val">{{ bridgeInfo.closed ? '封桥中' : '通行中' }}<ComicIcon v-if="bridgeInfo.closed" name="closed" :size="14" /></span>
-        </div>
-        <p class="info__tip"><ComicIcon name="wave" :size="13" /> 过江唯一通道：未在桥格跨江会被江水拦住，点数作废</p>
-      </template>
-
       <!-- 轻轨 -->
       <template v-if="metroInfo">
         <div class="info__row">
@@ -180,7 +154,7 @@ const canUpgrade = computed(() => {
 
       <!-- 事件 / 起点 -->
       <p v-if="eventDesc" class="info__tip"><ComicIcon name="dice" :size="13" /> {{ eventDesc }}</p>
-      <p v-if="tile.type === 'start'" class="info__tip"><ComicIcon name="flag" :size="13" /> 每绕城一圈经过解放碑，领取工资 ¥300</p>
+      <p v-if="tile.type === 'start'" class="info__tip"><ComicIcon name="flag" :size="13" /> 每绕城一圈经过朝天门，领取工资 ¥300</p>
 
       <div class="info__btns">
         <button v-if="canUpgrade" class="btn-comic btn-comic--sm" @click="emit('upgrade', tile.id)">

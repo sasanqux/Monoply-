@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import ComicIcon from './ComicIcon.vue'
 import BoardFx from './BoardFx.vue'
-import { TILES, RIVERS, REGIONS, METRO_STATIONS, PATH_POLYLINE, GROUPS, tilePosition, isPropertyTile, isBridge, isMetro, SHOPS } from '../game/index.js'
+import { TILES, METRO_STATIONS, PATH_POLYLINE, GROUPS, tilePosition, isPropertyTile, isMetro, SHOPS } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
@@ -63,7 +63,11 @@ function posOf(id) {
 }
 
 function isRiverBank(t) {
-  return !!t.riverEdge
+  return false
+}
+
+function isFork(t) {
+  return !!(t.forks && t.forks.length)
 }
 
 // 按名字长度自适应字号：保证长地名完整显示
@@ -76,20 +80,23 @@ function nameFont(name) {
 }
 
 function tileBg(t) {
-  // 纯颜色区分：普通地产=白 / 桥=蓝 / 轻轨=绿 / 商圈=紫 / 起点=红 / 事件=黄
+  // 纯颜色区分：起点=红 / 奖励格=金 / 景点=绿 / 轻轨=青 / 商圈=组色(紫系) / 普通地产=组色 / 事件=黄 / 默认白
   switch (t.type) {
     case 'start': return '#ef4444'
-    case 'bridge': return '#3b82f6'
-    case 'metro': return '#22c55e'
-    case 'land': return t.group ? '#8b5cf6' : '#ffffff'
-    case 'event': return '#facc15'
+    case 'corner': return '#f59e0b'
+    case 'scenic': return '#22c55e'
+    case 'station': return '#0891b2'
+    case 'mall': return GROUPS[t.group]?.color ?? '#8b5cf6'
+    case 'land': return GROUPS[t.group]?.color ?? '#ffffff'
+    case 'chance': return '#facc15'
     default: return '#ffffff'
   }
 }
 
 function tileFg(t) {
   if (t.type === 'land' && !t.group) return '#1a1a1a'
-  if (t.type === 'event') return '#1a1a1a'
+  if (t.type === 'chance') return '#1a1a1a'
+  if (t.type === 'corner') return '#1a1a1a'
   return '#ffffff'
 }
 
@@ -142,14 +149,6 @@ function onTile(t) {
 <template>
   <div class="board" :class="{ 'board--shake': shaking }">
     <svg class="board__bg" viewBox="0 0 100 88" preserveAspectRatio="none" aria-hidden="true">
-      <!-- 三大区域底色 -->
-      <path v-for="rg in REGIONS" :key="rg.name" :d="rg.d" fill="currentColor" class="region" :style="{ color: rg.color }" />
-      <!-- 两江 -->
-      <path v-for="r in RIVERS" :key="r.name" :d="r.d" fill="none" stroke="#2563eb" stroke-width="5" stroke-linecap="round" opacity="0.75" />
-      <path v-for="r in RIVERS" :key="r.name + '-border'" :d="r.d" fill="none" stroke="#1e40af" stroke-width="1.4" stroke-dasharray="3 2" opacity="0.6" />
-      <!-- 江名 -->
-      <text class="river-label" x="20" y="22" transform="rotate(-20 20 22)">嘉陵江</text>
-      <text class="river-label" x="46" y="76" transform="rotate(8 46 76)">长 江</text>
       <!-- 轻轨线（立体交通） -->
       <polyline :points="metroLine" fill="none" stroke="#a855f7" stroke-width="1.3" stroke-dasharray="2.6 2.2" opacity="0.9" />
       <!-- 折线闭环路径线 -->
@@ -173,12 +172,14 @@ function onTile(t) {
         'tile--sel': selectable.includes(t.id),
         'tile--up': upgradable(t.id),
         'tile--bank': isRiverBank(t),
+        'tile--fork': isFork(t),
       }"
       :style="{ left: posOf(t.id).x + '%', top: posOf(t.id).y + '%', background: tileBg(t), color: tileFg(t) }"
       :title="t.name + (t.sub ? ' · ' + t.sub : '') + (ownerOf(t.id) ? ' · 拥有者 ' + ownerOf(t.id).name : '')"
       @click="onTile(t)"
     >
       <span class="tile__num">{{ t.id }}</span>
+      <span v-if="isFork(t)" class="tile__fork" title="分岔路口：可自选路线">分</span>
       <span v-if="isRiverBank(t)" class="tile__bank-mark"><ComicIcon name="wave" :size="13" /></span>
       <span class="tile__name" :style="{ fontSize: nameFont(t.name) }">{{ t.name }}</span>
 
@@ -270,6 +271,30 @@ function onTile(t) {
   left: -5px;
   font-size: clamp(9px, 1.1cqw, 15px);
   line-height: 1;
+}
+
+/* 分岔路口标记：金色"分"角标 + 外发光，提示玩家可自选路线 */
+.tile--fork {
+  box-shadow: 0 0 0 2px #f59e0b, 2px 2px 0 0 rgba(26, 26, 26, 0.85);
+}
+
+.tile__fork {
+  position: absolute;
+  top: -7px;
+  right: -6px;
+  font-size: clamp(8px, 0.95cqw, 12px);
+  font-weight: 900;
+  line-height: 1;
+  width: 1.5em;
+  height: 1.5em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #f59e0b;
+  color: #1a1a1a;
+  border: 1.5px solid var(--ink);
+  box-shadow: 1px 1px 0 0 rgba(26, 26, 26, 0.8);
 }
 
 .tile__num {

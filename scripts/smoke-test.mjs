@@ -1,4 +1,4 @@
-// smoke-test.mjs — 冒烟：48 格整局 + 两江拦截 + 轻轨 + 商圈 + 卡片/道具/载具/桥
+// smoke-test.mjs — 冒烟：52 格图结构整局 + 分岔路口(暂停/续走/链式) + 轻轨 + 商圈 + 卡片/道具/载具
 import {
   createInitialState,
   gameReducer,
@@ -9,6 +9,7 @@ import {
   movePlayer,
   VEHICLES,
   isGroupComplete,
+  aiChooseFork,
 } from '../src/game/index.js'
 
 function makeState(players, maxTurns = 40, startMoney = 5000) {
@@ -27,53 +28,109 @@ function check(name, cond) {
   }
 }
 
-console.log('▶ 整局跑通（3 人 · 48 格 · 40 回合）')
+console.log('▶ 地图数据完整性（52 格图结构）')
+{
+  check('总格子数 = 52', TILES.length - 1 === 52)
+  let ok = true
+  for (let i = 1; i <= 52; i++) {
+    const t = TILES[i]
+    if (!t) { ok = false; break }
+    if (!t.next || !TILES[t.next]) { ok = false; break }
+    if (t.forks) for (const f of t.forks) if (!TILES[f]) { ok = false; break }
+  }
+  check('每格 next / forks 指向有效格子', ok)
+  const starts = TILES.filter((t) => t && t.type === 'start')
+  check('唯一起点 = 朝天门(id 1)', starts.length === 1 && starts[0].id === 1)
+  const forks = TILES.filter((t) => t && t.forks && t.forks.length)
+  console.log(`    起点 1 个 · 分岔路口 ${forks.length} 个：${forks.map((f) => f.name).join('、')}`)
+}
+
+console.log('▶ 整局跑通（3 AI · 52 格 · 40 回合）')
 {
   let state = makeState([
-    { id: 'p1', name: '我', isAI: false },
-    { id: 'p2', name: 'AI小蓝', isAI: true },
-    { id: 'p3', name: 'AI小绿', isAI: true },
+    { id: 'p1', name: 'AI小蓝', isAI: true },
+    { id: 'p2', name: 'AI小绿', isAI: true },
+    { id: 'p3', name: 'AI小橙', isAI: true },
   ], 40)
   let steps = 0
-  while (state.status === 'playing' && steps < 12000) {
+  while (state.status === 'playing' && steps < 20000) {
     const cur = currentPlayer(state)
     const action = aiDecide(state, cur.id)
     state = gameReducer(state, action)
     steps++
   }
-  check('游戏正常结束', state.status === 'finished' && steps < 12000)
+  check('游戏正常结束', state.status === 'finished' && steps < 20000)
   check('存活玩家现金不为负', state.players.every((p) => !p.alive || p.money >= 0))
   check('有胜者', !!state.winnerId)
-  const bridgesOwned = state.players.reduce((n, p) => n + p.properties.filter((i) => TILES[i].type === 'bridge').length, 0)
-  const metrosOwned = state.players.reduce((n, p) => n + p.properties.filter((i) => TILES[i].type === 'metro').length, 0)
-  console.log(`    轮数 ${state.round} · 步数 ${steps} · 桥 ${bridgesOwned} 座 · 轻轨站 ${metrosOwned} 个`)
+  const metrosOwned = state.players.reduce((n, p) => n + p.properties.filter((i) => TILES[i].type === 'station').length, 0)
+  const mallsOwned = state.players.reduce((n, p) => n + p.properties.filter((i) => TILES[i].type === 'mall').length, 0)
+  console.log(`    轮数 ${state.round} · 步数 ${steps} · 轻轨站 ${metrosOwned} 个 · 商圈 ${mallsOwned} 处`)
 }
 
-console.log('▶ 两江拦截')
+console.log('▶ 过起点发工资（绕城回朝天门 +300）')
 {
   const s = makeState([
     { id: 'p1', name: 'A', isAI: true },
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
-  const player = s.players[0]
-  player.pos = 3 // 大溪沟 riverEdge → 4 黄花园大桥
-  player.money = 10000
-  const r1 = movePlayer(s, player, [1, 1]) // 3→4(桥)→5
-  check('过桥格后可继续走', r1.pos === 5)
-  s.closedBridges[4] = 2
-  player.pos = 3
-  player.money = 10000
-  const r2 = movePlayer(s, player, [1, 1])
-  check('封桥后被拦在江边', r2.blocked === true && r2.pos === 3)
-  player.ferry = true // 桥机制：ferry 标志可无视拦截（地图机制，非轮渡卡）
-  const r3 = movePlayer(s, player, [1, 1])
-  check('ferry 标志无视拦截', r3.pos === 5)
-  // 47 上清寺 → 48 千厮门大桥
-  player.ferry = false
-  player.pos = 47
-  player.money = 10000
-  const r4 = movePlayer(s, player, [1, 1])
-  check('48→1 闭环可达', r4.pos === 48 || r4.pos === 1)
+  const a = s.players[0]
+  a.pos = 50 // 洪崖洞（朝天门 50 的前一格）
+  a.money = 1000
+  const before = a.money
+  const r = movePlayer(s, a, 1, aiChooseFork, 50)
+  check('走 1 步到达朝天门(id 1)', a.pos === 1 && r.paused === false)
+  check('回到朝天门领取工资 +300', a.money === before + 300)
+}
+
+console.log('▶ 分岔路口：人类暂停 / AI 自动选路')
+{
+  const s = makeState([
+    { id: 'p1', name: '我', isAI: false },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  const a = s.players[0]
+  a.pos = 1 // 朝天门，forks=[50,49], next=2
+  const r = movePlayer(s, a, 1, null, 1) // 人类 chooser=null → 暂停
+  check('人类在分岔格暂停', r.paused === true)
+  check('pending 记录分岔选项(含洪崖洞/解放碑)', s.pending?.kind === 'fork' && s.pending.options.includes(50) && s.pending.options.includes(49))
+  // AI 自动选路：走 tile.next
+  const s2 = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  const b = s2.players[0]
+  b.pos = 1
+  const r2 = movePlayer(s2, b, 1, (t, opts) => aiChooseFork(s2, b, t, opts), 1)
+  check('AI 在分岔格不暂停（自动走直行）', r2.paused === false && b.pos === 2)
+}
+
+console.log('▶ 分岔路口：CHOOSE_FORK 续走 + 链式分岔')
+{
+  // 石桥铺(13) 直行 14 / 分叉 51，剩余 3 步选直行 → 14→15→16 落点
+  let s = makeState([
+    { id: 'p1', name: '我', isAI: false },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  s.phase = 'fork'
+  s.pending = { kind: 'fork', tileId: 13, options: [14, 51], stepsLeft: 3, cameFrom: 13 }
+  s.players[0].pos = 13
+  s.players[0].walkPath = [13]
+  s = gameReducer(s, { type: 'CHOOSE_FORK', tileId: 14 })
+  check('选直行后继续走到 17（14→15→16→17）', s.players[0].pos === 17)
+  check('续走后落地结算', s.phase === 'landed')
+
+  // 三峡广场(43) 直行 44 / 分叉 17、18；选 17 后剩 3 步：17→18→19(磁器口 分岔) 再暂停
+  s = makeState([
+    { id: 'p1', name: '我', isAI: false },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  s.phase = 'fork'
+  s.pending = { kind: 'fork', tileId: 43, options: [17, 18], stepsLeft: 3, cameFrom: 43 }
+  s.players[0].pos = 43
+  s.players[0].walkPath = [43]
+  s = gameReducer(s, { type: 'CHOOSE_FORK', tileId: 17 })
+  check('链式分岔：走到磁器口(19)再次暂停', s.players[0].pos === 19 && s.phase === 'fork')
+  check('链式分岔 pending 在磁器口', s.pending?.tileId === 19)
 }
 
 console.log('▶ 轻轨系统')
@@ -83,17 +140,15 @@ console.log('▶ 轻轨系统')
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   const a = state.players[0]
-  // A 在 9 号红土地（metro），可乘轻轨去 28 李子坝
-  a.pos = 9
+  a.pos = 5 // 茶园（station）
   a.money = 2000
-  state.pending = { kind: 'metro', tileId: 9 }
-  state = gameReducer(state, { type: 'TRAVEL_METRO', targetTileId: 28 })
-  check('乘轻轨传送到目标站', state.players[0].pos === 28)
+  state.pending = { kind: 'metro', tileId: 5 }
+  state = gameReducer(state, { type: 'TRAVEL_METRO', targetTileId: 27 }) // 中央公园东
+  check('乘轻轨传送到目标站', state.players[0].pos === 27)
   check('乘轻轨扣费 150', state.players[0].money === 1850)
   check('乘轻轨后 pending 清空', state.pending === null)
-  // 无 pending 时不能乘
   state = gameReducer(state, { type: 'TRAVEL_METRO', targetTileId: 44 })
-  check('无 pending 不能乘轻轨', state.players[0].pos === 28)
+  check('无 pending 不能乘轻轨', state.players[0].pos === 27)
 }
 
 console.log('▶ 商圈组合')
@@ -103,10 +158,10 @@ console.log('▶ 商圈组合')
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   const a = s.players[0]
-  check('渝中核心未集齐', isGroupComplete(s, 'g1') === false)
-  a.properties = [2, 3]
-  a.levels = { 2: 0, 3: 0 }
-  check('临江门+大溪沟集齐渝中核心', isGroupComplete(s, 'g1') === true)
+  check('渝中核心未集齐', isGroupComplete(s, 'g1 渝中核心') === false)
+  a.properties = [44, 45, 46, 47, 48, 49, 50]
+  a.levels = { 44: 0, 45: 0, 46: 0, 47: 0, 48: 0, 49: 0, 50: 0 }
+  check('集齐渝中核心(含洪崖洞共7格)', isGroupComplete(s, 'g1 渝中核心') === true)
 }
 
 console.log('▶ 卡片效果')
@@ -118,9 +173,9 @@ console.log('▶ 卡片效果')
   let a = state.players[0]
   a.money = 10000
   a.hand = [{ id: 'c2', type: 'buy', name: '购地卡', desc: '', icon: '' }]
-  state = gameReducer(state, { type: 'USE_CARD', cardId: 'c2', target: { tileId: 2 } })
+  state = gameReducer(state, { type: 'USE_CARD', cardId: 'c2', target: { tileId: 2 } }) // 弹子石
   a = state.players[0]
-  check('购地卡买到临江门', a.properties.includes(2))
+  check('购地卡买到弹子石', a.properties.includes(2))
   a.hand = [{ id: 'c6', type: 'frame', name: '陷害卡', desc: '', icon: '' }]
   state = gameReducer(state, { type: 'USE_CARD', cardId: 'c6', target: { playerId: 'p2' } })
   check('陷害卡送人进监狱', state.players[1].jailLeft === 2)
@@ -137,7 +192,7 @@ console.log('▶ 即时卡（免费升级 / 逃狱卡）')
   a.levels = { 2: 0 }
   a.hand = [{ id: 'n2', type: 'freeUpgrade', name: '免费升级', desc: '', icon: '' }]
   s = gameReducer(s, { type: 'USE_CARD', cardId: 'n2' })
-  check('免费升级 临江门→1级', s.players[0].levels[2] === 1)
+  check('免费升级 弹子石→1级', s.players[0].levels[2] === 1)
 
   s = makeState([
     { id: 'p1', name: 'A', isAI: true },
@@ -160,31 +215,30 @@ console.log('▶ 道具系统')
   let b = state.players[1]
   a.items = [{ id: 'i1', type: 'barrier', name: '路障', desc: '', icon: '' }]
   state.boardItems = []
-  state = gameReducer(state, { type: 'USE_ITEM', itemId: 'i1', tileId: 8 })
+  state = gameReducer(state, { type: 'USE_ITEM', itemId: 'i1', tileId: 8 }) // 南坪
   check('放置路障成功', state.boardItems.length === 1)
   b = state.players[1]
   b.pos = 7
   b.money = 5000
-  const moved = movePlayer(state, b, [1, 1])
-  check('路障挡停移动', moved.blocked === true && moved.pos === 8)
+  movePlayer(state, b, 2, null, 7) // 7→8 撞路障停下
+  check('路障挡停在 8', b.pos === 8)
   check('路障被消耗', state.boardItems.length === 0)
   a = state.players[0]
   a.items = [{ id: 'i2', type: 'remoteDice', name: '遥控骰子', desc: '', icon: '' }]
   state = gameReducer(state, { type: 'USE_ITEM', itemId: 'i2', value: 6 })
   check('遥控骰子设定点数（走路 1 颗最大 6）', state.players[0].remoteDice === 6)
-  // 越界值 clamp 到合法范围
   a = state.players[0]
   a.items = [{ id: 'i2b', type: 'remoteDice', name: '遥控骰子', desc: '', icon: '' }]
   state = gameReducer(state, { type: 'USE_ITEM', itemId: 'i2b', value: 99 })
   check('遥控骰子越界 clamp（走路 1 颗 → 6）', state.players[0].remoteDice === 6)
   a = state.players[0]
   a.items = [{ id: 'i3', type: 'portal', name: '传送门', desc: '', icon: '' }]
-  state = gameReducer(state, { type: 'USE_ITEM', itemId: 'i3', tileId: 33 })
+  state = gameReducer(state, { type: 'USE_ITEM', itemId: 'i3', tileId: 33 }) // 江北城
   check('传送门传送成功', state.players[0].pos === 33)
   a = state.players[0]
   a.items = [{ id: 'i4', type: 'bomb', name: '定时炸弹', desc: '', icon: '' }]
-  state = gameReducer(state, { type: 'USE_ITEM', itemId: 'i4', tileId: 10 })
-  check('炸弹放置成功', state.boardItems.some((x) => x.type === 'bomb' && x.fuse === 3))
+  state = gameReducer(state, { type: 'USE_ITEM', itemId: 'i4', tileId: 10 }) // 巴南
+  check('炸弹放置成功（引信 3）', state.boardItems.some((x) => x.type === 'bomb' && x.fuse === 3))
 }
 
 console.log('▶ 交通工具')
@@ -195,27 +249,9 @@ console.log('▶ 交通工具')
   ], 40)
   check('初始走路 1 骰', VEHICLES.walk.dice === 1)
   check('飞机 5 骰', VEHICLES.plane.dice === 5)
-  const s2 = gameReducer(s, { type: 'ROLL_DICE' })
-  check('掷骰/落地结算不崩溃', s2.status === 'playing' || s2.status === 'finished')
-}
-
-console.log('▶ 桥资产')
-{
-  const s = makeState([
-    { id: 'p1', name: 'A', isAI: true },
-    { id: 'p2', name: 'B', isAI: true },
-  ], 40)
-  const a = s.players[0]
-  const b = s.players[1]
-  a.money = 10000
-  a.properties.push(4)
-  b.money = 5000
-  b.pos = 3 // 大溪沟 riverEdge → 4 桥
-  const before = b.money
-  const moved = movePlayer(s, b, [1, 0])
-  check('过桥交纳过路费', b.money < 5000 && moved.pos === 4)
-  const after = b.money
-  check('桥主收到过路费', a.money === 10000 + (before - after))
+  const s2 = { ...s, players: s.players.map((p) => ({ ...p, pos: 2 })) } // 放到非分岔格避免暂停
+  const r2 = gameReducer(s2, { type: 'ROLL_DICE' })
+  check('掷骰/落地结算不崩溃', r2.status === 'playing' || r2.status === 'finished')
 }
 
 console.log('▶ 转向卡反向移动（方向 bug 回归）')
@@ -225,43 +261,10 @@ console.log('▶ 转向卡反向移动（方向 bug 回归）')
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   const a = s.players[0]
-  a.pos = 3 // 大溪沟 riverEdge，反向走不跨江
-  a.direction = -1 // 转向卡
-  s.closedBridges[4] = 2 // 桥被封
-  a.money = 10000
-  const r = movePlayer(s, a, [1, 1]) // 反向 3→2→1，应不受封桥影响
-  check('反向移动不被江边封桥拦截', r.pos === 1 && r.blocked !== true)
-  // 正向移动仍被拦
-  const s2 = makeState([
-    { id: 'p1', name: 'A', isAI: true },
-    { id: 'p2', name: 'B', isAI: true },
-  ], 40)
-  const a2 = s2.players[0]
-  a2.pos = 3
-  a2.money = 10000
-  s2.closedBridges[4] = 2
-  const r2 = movePlayer(s2, a2, [1, 1])
-  check('正向移动仍被江边封桥拦截', r2.blocked === true && r2.pos === 3)
-}
-
-console.log('▶ 免罪卡豁免过桥费')
-{
-  const s = makeState([
-    { id: 'p1', name: 'A', isAI: true },
-    { id: 'p2', name: 'B', isAI: true },
-  ], 40)
-  const a = s.players[0] // 桥主
-  const b = s.players[1]
-  a.properties.push(4)
-  a.money = 10000
-  b.money = 5000
-  b.pos = 3
-  b.shield = true // 免罪卡
-  const before = b.money
-  const moved = movePlayer(s, b, [1, 0])
-  check('免罪卡豁免过桥费（现金不变）', b.money === before)
-  check('免罪卡一次性消耗', b.shield === false)
-  check('仍正常到达桥格', moved.pos === 4)
+  a.pos = 3 // 上新街，反向走 3→2→1（主环连续，无分岔干扰）
+  a.direction = -1
+  const r = movePlayer(s, a, 2, null, 3)
+  check('反向移动 2 步到达 1', r.paused === false && a.pos === 1)
 }
 
 console.log('▶ AI 会用卡/道具/乘轻轨')
@@ -272,33 +275,33 @@ console.log('▶ AI 会用卡/道具/乘轻轨')
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   s.players[0].hand = [{ id: 'c2', type: 'demolish', name: '拆除卡', desc: '', icon: '' }]
-  s.players[1].properties = [20]
+  s.players[1].properties = [20] // 歌乐山
   s.players[1].levels = { 20: 2 }
   s.phase = 'landed'
   const a2 = aiDecide(s, 'p1')
   check('AI 持拆除卡且对手有楼 → 用拆除卡', a2?.type === 'USE_CARD' && a2?.target?.tileId === 20)
-  // 放路障
+  // 放路障（放到自己地产前一格）
   s = makeState([
     { id: 'p1', name: 'A', isAI: true },
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   s.players[0].items = [{ id: 'i1', type: 'barrier', name: '路障', desc: '', icon: '' }]
-  s.players[0].properties = [5]
+  s.players[0].properties = [5] // 茶园
   s.players[0].levels = { 5: 2 }
   s.phase = 'landed'
   const a3 = aiDecide(s, 'p1')
-  check('AI 有路障且有地产 → 放地产前一格', a3?.type === 'USE_ITEM' && a3?.tileId === 4)
+  check('AI 有路障且有地产 → 放地产前一格(4)', a3?.type === 'USE_ITEM' && a3?.tileId === 4)
   // 乘轻轨
   s = makeState([
     { id: 'p1', name: 'A', isAI: true },
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
-  s.players[0].pos = 9
+  s.players[0].pos = 5
   s.players[0].money = 2000
-  s.pending = { kind: 'metro', tileId: 9 }
+  s.pending = { kind: 'metro', tileId: 5 }
   s.phase = 'landed'
   const a4 = aiDecide(s, 'p1')
-  check('AI 在轻轨站有钱 → 乘轻轨', a4?.type === 'TRAVEL_METRO' && TILES[a4.targetTileId]?.type === 'metro')
+  check('AI 在轻轨站有钱 → 乘轻轨', a4?.type === 'TRAVEL_METRO' && TILES[a4.targetTileId]?.type === 'station')
   // 无适用操作
   s = makeState([
     { id: 'p1', name: 'A', isAI: true },
@@ -310,20 +313,29 @@ console.log('▶ AI 会用卡/道具/乘轻轨')
   check('AI 无适用操作 → 结束回合', a6?.type === 'END_TURN')
 }
 
+console.log('▶ 数值套用检查（自动套地价/租金）')
+{
+  check('解放碑(商圈) 价 2100 / 租 420', TILES[49].price === 2100 && TILES[49].rent === 420)
+  check('朝天门 起点无价', TILES[1].type === 'start' && TILES[1].price == null)
+  check('大渡口 普通地产 价 700 / 租 140', TILES[11].price === 700 && TILES[11].rent === 140)
+  check('江北机场 价 1050（繁华）', TILES[29].price === 1050)
+  check('轻轨站 价 1100 / 过路费 150', TILES[5].price === 1100 && TILES[5].metroFee === 150)
+}
+
 console.log('▶ reducer 能处理 Proxy（浏览器真实场景）')
 {
-  // 浏览器里 state.value 是 Vue reactive proxy，structuredClone 不能克隆 Proxy 会抛 DataCloneError
-  // 修复后用 JSON 深拷贝，必须能处理 Proxy
   const proxy = new Proxy(createInitialState({ players: [{ id: 'p1', name: 'A', isAI: false }], maxTurns: 40, startMoney: 5000 }), {
     get(t, k) { return Reflect.get(t, k) },
     ownKeys(t) { return Reflect.ownKeys(t) },
   })
+  proxy.players[0].pos = 2 // 放到非分岔格，避免人类在朝天门暂停
   let didThrow = false
+  let s
   try {
-    const s = gameReducer(proxy, { type: 'ROLL_DICE' })
+    s = gameReducer(proxy, { type: 'ROLL_DICE' })
     check('Reducer 不崩', !!s)
     check('掷骰后 phase=landed', s.phase === 'landed')
-  } catch (e) { didThrow = true }
+  } catch (e) { didThrow = true; console.log('    error:', e.message) }
   check('不抛 DataCloneError', !didThrow)
 }
 

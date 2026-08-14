@@ -33,8 +33,9 @@ const statusText = computed(() => {
   if (cur.hospital) return `${cur.name} 在医院休养`
   if (!props.isMyTurn) return `${cur.name} 思考中…`
   if (props.state.phase === 'roll') return `轮到你掷骰（${VEHICLES[cur.vehicle].name} ${VEHICLES[cur.vehicle].dice} 颗）`
+  if (props.state.phase === 'fork') return `⑂ 分岔路口：选一条路线继续走`
   if (metroPending.value) return `轻轨站：可以乘轻轨去其他站`
-  if (pendingTile.value) return `「${pendingTile.value.name}」${pendingTile.value.type === 'bridge' ? '（桥）' : ''}待购买`
+  if (pendingTile.value) return `「${pendingTile.value.name}」待购买`
   return `轮到你行动`
 })
 </script>
@@ -72,12 +73,13 @@ const statusText = computed(() => {
     <p v-else class="actions__wait">等待电脑对手行动…</p>
 
     <div class="legend">
-      <span class="legend__item"><i style="background:#ffffff"></i>普通</span>
-      <span class="legend__item"><i style="background:#3b82f6"></i>桥</span>
-      <span class="legend__item"><i style="background:#22c55e"></i>轻轨</span>
+      <span class="legend__item"><i style="background:#ffffff"></i>普通地产</span>
+      <span class="legend__item"><i style="background:#22c55e"></i>景点</span>
+      <span class="legend__item"><i style="background:#0891b2"></i>轻轨站</span>
       <span class="legend__item"><i style="background:#8b5cf6"></i>商圈</span>
       <span class="legend__item"><i style="background:#ef4444"></i>起点</span>
       <span class="legend__item"><i style="background:#facc15"></i>事件</span>
+      <span class="legend__item"><i style="background:#f59e0b"></i>奖励格</span>
     </div>
   </section>
 </template>

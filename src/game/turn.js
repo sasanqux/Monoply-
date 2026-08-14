@@ -1,5 +1,5 @@
-// turn.js — 落地结算 + 回合推进（48 格 · 轻轨 · 商圈）
-import { TILES, isPropertyTile, isBridge, isMetro, JAIL_TURNS, METRO_FEE } from './board.js'
+// turn.js — 落地结算 + 回合推进（52 格 · 图结构 · 轻轨 · 商圈）
+import { TILES, isPropertyTile, isMetro, GROUPS } from './board.js'
 import { payMoney, addMoney } from './bank.js'
 import { getRent, isGroupComplete } from './property.js'
 import { randomCard, tryShield } from './card.js'
@@ -8,6 +8,7 @@ import { alivePlayers, checkBankrupt, getWinnerByElimination, settleByTurns } fr
 
 const HAND_LIMIT = 10
 const ITEM_LIMIT = 5
+const CORNER_BONUS = 200
 
 // 通用事件池（山城奇遇，含抽卡/得道具/载具丢失/重庆特色）
 const EVENT_POOL = [
@@ -23,7 +24,6 @@ const EVENT_POOL = [
   { text: '载具被拖走，含泪走路', delta: -120, loseVehicle: true },
   { text: '偶遇神秘人，送了一张卡片！', delta: 0, card: true },
   { text: '在旧货堆里捡到一件道具！', delta: 0, item: true },
-  // 重庆特色
   { text: '洪崖洞夜景直播，收了一波打赏', delta: 280 },
   { text: '长江索道排队太久，改打车破财', delta: -220 },
   { text: '磁器口试吃麻花，顺手买了两袋', delta: -130 },
@@ -32,36 +32,13 @@ const EVENT_POOL = [
   { text: '火锅太辣肠胃罢工，看病花了一笔', delta: -320 },
 ]
 
-// 火锅事件池（重庆火锅格）
-const HOTPOT_POOL = [
-  { text: '吃了顿正宗火锅，香！', delta: -150 },
-  { text: '给火锅店代言，赚了代言费', delta: 250 },
-  { text: '朋友请客白吃一顿火锅', delta: 0 },
-  { text: '火锅太辣，肚子拉得够呛', delta: -100 },
-  { text: '火锅店抽奖中免单，还倒赚', delta: 120 },
-  { text: '九宫格点多了，打包带走', delta: -60 },
-  { text: '毛肚鸭肠拼盘翻倍，店家多送', delta: 90 },
-  { text: '被辣哭但发了条搞笑视频，涨粉', delta: 180 },
-]
-
 export function drawEvent() {
   return EVENT_POOL[Math.floor(Math.random() * EVENT_POOL.length)]
-}
-
-export function drawHotpot() {
-  return HOTPOT_POOL[Math.floor(Math.random() * HOTPOT_POOL.length)]
 }
 
 // 落地结算
 export function handleLanding(state, player) {
   const tile = TILES[player.pos]
-
-  // 桥梁：无主可买（有主收费已在移动中处理）
-  if (isBridge(tile)) {
-    const owner = state.players.find((p) => p.alive && p.properties.includes(tile.id))
-    if (!owner) state.pending = { kind: 'buy', tileId: tile.id }
-    return
-  }
 
   if (isPropertyTile(tile)) {
     const owner = state.players.find((p) => p.alive && p.properties.includes(tile.id))
@@ -79,7 +56,7 @@ export function handleLanding(state, player) {
       checkBankrupt(state, player)
       if (tile.group && isGroupComplete(state, tile.group) && !state.announcedGroups[tile.group]) {
         state.announcedGroups[tile.group] = true
-        state.log.push(`🏙️ 「${GROUPS_OF(tile.group)}」商圈已建成，${owner.name} 坐地收租！`)
+        state.log.push(`🏙️ 「${GROUPS[tile.group]?.name ?? tile.group}」商圈已建成，${owner.name} 坐地收租！`)
       }
     }
     // 轻轨站：可乘轻轨去其他站（购买决策优先，买完不再弹乘轻轨）
@@ -91,61 +68,40 @@ export function handleLanding(state, player) {
 
   switch (tile.type) {
     case 'start':
-      state.log.push(`${player.name} 路过解放碑，歇歇脚`)
+      state.log.push(`${player.name} 回到朝天门，重整旗鼓`)
+      break
+    case 'corner':
+      addMoney(state, player.id, CORNER_BONUS, `在「${tile.name}」逛了一圈，领到奖励 ¥${CORNER_BONUS}`)
       break
     case 'event': {
-      if (tile.id === 42) {
-        // 重庆火锅：特色事件
-        const ev = drawHotpot()
-        addMoney(state, player.id, ev.delta, ev.text)
-        checkBankrupt(state, player)
-      } else {
-        // 山城奇遇：通用事件（可抽卡/得道具/丢载具）
-        const ev = drawEvent()
-        addMoney(state, player.id, ev.delta, ev.text)
-        if (ev.loseVehicle && player.vehicle !== 'walk') {
-          player.vehicle = 'walk'
-          state.log.push(`🚶 ${player.name} 的载具没了，只能走路（2 颗骰）`)
-        }
-        if (ev.card) {
-          const card = randomCard()
-          if (player.hand.length >= HAND_LIMIT) {
-            addMoney(state, player.id, 100, '手牌满了，卡片换成了安慰费')
-          } else {
-            player.hand.push({ ...card, id: `c${player.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` })
-          }
-        }
-        if (ev.item) {
-          const item = randomItem()
-          if (player.items.length >= ITEM_LIMIT) {
-            addMoney(state, player.id, 80, '道具栏满了，卖了点旧货')
-          } else {
-            player.items.push({ ...item, id: `i${player.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` })
-          }
-        }
-        checkBankrupt(state, player)
+      const ev = drawEvent()
+      addMoney(state, player.id, ev.delta, ev.text)
+      if (ev.loseVehicle && player.vehicle !== 'walk') {
+        player.vehicle = 'walk'
+        state.log.push(`🚶 ${player.name} 的载具没了，只能走路`)
       }
-      break
-    }
-    case 'jail':
-      player.jailLeft = JAIL_TURNS
-      state.log.push(`🚔 ${player.name} 进了拘留所，停 ${JAIL_TURNS} 轮`)
-      break
-    case 'hospital': {
-      if (tryShield(state, player)) break
-      player.hospital = true
-      payMoney(state, player.id, null, 200, `入院治疗`)
+      if (ev.card) {
+        const card = randomCard()
+        if (player.hand.length >= HAND_LIMIT) {
+          addMoney(state, player.id, 100, '手牌满了，卡片换成了安慰费')
+        } else {
+          player.hand.push({ ...card, id: `c${player.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` })
+        }
+      }
+      if (ev.item) {
+        const item = randomItem()
+        if (player.items.length >= ITEM_LIMIT) {
+          addMoney(state, player.id, 80, '道具栏满了，卖了点旧货')
+        } else {
+          player.items.push({ ...item, id: `i${player.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` })
+        }
+      }
       checkBankrupt(state, player)
-      state.log.push(`🏥 ${player.name} 住院，下一轮休养`)
       break
     }
+    default:
+      break
   }
-}
-
-// 商圈名（local helper）
-function GROUPS_OF(g) {
-  const map = { g1: '渝中核心', g2: '两江商业', g3: '人文旅游', g4: '南岸滨江', g5: '九龙商业', g6: '南部新城' }
-  return map[g] ?? g
 }
 
 // 推进到下一存活玩家
@@ -192,5 +148,3 @@ export function nextTurn(state) {
 export function currentPlayer(state) {
   return state.players[state.turnIndex]
 }
-
-export { METRO_FEE }

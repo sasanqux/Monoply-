@@ -1,11 +1,12 @@
 // reducer.js — gameReducer 纯函数总入口（单机本地跑，联机时搬到服务器）
-import { TILES, START_MONEY_DEFAULT, isPropertyTile, isBridge, isMetro, METRO_FEE } from './board.js'
+import { TILES, START_MONEY_DEFAULT, isPropertyTile, isMetro, METRO_FEE } from './board.js'
 import { rollForPlayer, movePlayer } from './movement.js'
 import { addMoney } from './bank.js'
 import { upgradeCost } from './property.js'
 import { applyCard, cardTargetKind, CARDS } from './card.js'
 import { placeItem, applyRemoteDice, applyPortal, isInstantItem, ITEMS } from './item.js'
 import { handleLanding, nextTurn, currentPlayer } from './turn.js'
+import { aiChooseFork } from './ai.js'
 
 export const PLAYER_COLORS = [
   '#ef4444', // 红
@@ -39,7 +40,7 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
       isAI: !!pl.isAI,
       color: PLAYER_COLORS[i % PLAYER_COLORS.length],
       money: startMoney,
-      pos: 1, // 48 格 1-48 编号，起点 1 解放碑
+      pos: 1, // 起点 = 朝天门 (id 1)
       properties: [],
       levels: {},
       hand: [],
@@ -54,10 +55,11 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
       hospital: false,
       alive: true,
       bankrupt: false,
+      walkPath: [1],
     })),
     log: [
       `🎮 重庆大富翁！${players.map((p) => p.name).join('、')}，每人起始资金 ¥${startMoney}`,
-      `🏙️ 绕重庆主城一圈 · 48 格 · 两江四桥 · 6 大商圈`,
+      `🏙️ 绕重庆主城一圈 · 52 格 · 7 个分岔路口，路线你定`,
       `🚈 轻轨站可购买 · 乘轻轨去别的站`,
       `第 1 回合，轮到 ${players[0].name}`,
     ],
@@ -65,11 +67,8 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
 }
 
 export function gameReducer(state, action) {
-  // 注意：浏览器里 state 是 Vue 响应式 Proxy，structuredClone 无法克隆 Proxy 会抛 DataCloneError
-  // 用 JSON 深拷贝（state 全是普通对象/数组/数字，无 Date/Map/函数，JSON 安全且兼容 Proxy）
   const s = JSON.parse(JSON.stringify(state))
   if (s.status !== 'playing') return s
-  // 兼容旧版本对局状态（HMR/热更新后旧 state 缺新字段）：补齐默认值，防止崩溃
   s.announcedGroups ??= {}
   s.closedBridges ??= {}
   s.boardItems ??= []
@@ -79,7 +78,6 @@ export function gameReducer(state, action) {
   switch (action.type) {
     case 'ROLL_DICE': {
       if (s.phase !== 'roll') break
-      // 监狱/停留/医院：跳过
       if (p.jailLeft > 0) {
         p.jailLeft -= 1
         s.log.push(`🚔 ${p.name} 在拘留所服刑（还剩 ${p.jailLeft} 轮）`)
@@ -99,13 +97,42 @@ export function gameReducer(state, action) {
         break
       }
       const dice = rollForPlayer(p)
-      s.dice = dice
       const sum = dice.reduce((a, b) => a + b, 0)
       const from = p.pos
-      const moved = movePlayer(s, p, dice)
-      s.log.push(`🎲 ${p.name} 掷出 ${dice.join(' + ')} = ${sum}，从「${TILES[from].name}」走到「${TILES[moved.pos].name}」`)
-      s.phase = 'landed'
-      handleLanding(s, p)
+      p.walkPath = [p.pos]
+      // AI 自动选路；人类传 null → 遇到分岔会暂停等待 CHOOSE_FORK
+      const chooser = p.isAI ? (tile, opts) => aiChooseFork(s, p, tile, opts) : null
+      const moved = movePlayer(s, p, sum, chooser, p.pos)
+      s.dice = dice
+      s.log.push(`🎲 ${p.name} 掷出 ${dice.join(' + ')} = ${sum}，从「${TILES[from].name}」出发`)
+      if (moved.paused) {
+        s.phase = 'fork'
+      } else {
+        s.phase = 'landed'
+        handleLanding(s, p)
+      }
+      break
+    }
+
+    case 'CHOOSE_FORK': {
+      if (s.phase !== 'fork' || !s.pending || s.pending.kind !== 'fork') break
+      const opt = s.pending.options
+      const chosen = action.tileId
+      if (!opt.includes(chosen)) break
+      const stepsLeft = s.pending.stepsLeft
+      const fromTile = s.pending.tileId
+      s.pending = null
+      p.walkPath = p.walkPath || [p.pos]
+      p.walkPath.push(chosen)
+      p.pos = chosen
+      const chooser = p.isAI ? (tile, opts) => aiChooseFork(s, p, tile, opts) : null
+      const moved = movePlayer(s, p, stepsLeft, chooser, fromTile)
+      if (moved.paused) {
+        s.phase = 'fork'
+      } else {
+        s.phase = 'landed'
+        handleLanding(s, p)
+      }
       break
     }
 
@@ -120,7 +147,7 @@ export function gameReducer(state, action) {
       p.properties.push(tile.id)
       if (isPropertyTile(tile)) p.levels[tile.id] = 0
       s.pending = null
-      s.log.push(`${isBridge(tile) ? '🌉' : '🏠'} ${p.name} 购入「${tile.name}」（¥${tile.price}，现 ¥${p.money}）`)
+      s.log.push(`${isMetro(tile) ? '🚈' : '🏠'} ${p.name} 购入「${tile.name}」（¥${tile.price}，现 ¥${p.money}）`)
       break
     }
 
@@ -171,7 +198,6 @@ export function gameReducer(state, action) {
         applyPortal(s, p, action.tileId)
         p.items.splice(idx, 1)
       } else {
-        // 放置型（路障/地雷/炸弹）
         if (action.tileId == null) break
         if (placeItem(s, p, item.type, action.tileId)) {
           p.items.splice(idx, 1)
@@ -193,7 +219,6 @@ export function gameReducer(state, action) {
     }
 
     case 'TRAVEL_METRO': {
-      // 轻轨：从当前轻轨站付费前往目标轻轨站
       if (s.pending?.kind !== 'metro') break
       if (!isMetro(TILES[p.pos])) break
       const target = TILES[action.targetTileId]

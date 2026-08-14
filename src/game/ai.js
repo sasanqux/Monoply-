@@ -44,6 +44,15 @@ function randomEnemy(state, cur) {
   return others[Math.floor(Math.random() * others.length)].id
 }
 
+// 图结构前驱（沿图回退一格）
+function predecessorOf(id) {
+  for (const t of TILES) {
+    if (!t) continue
+    if (t.next === id || (t.forks && t.forks.includes(id))) return t.id
+  }
+  return id
+}
+
 // 自己最高级地产的"前一格"（放路障/地雷/炸弹，坑来踩地的对手）
 function myHighPropPrevTile(state, cur) {
   let best = null
@@ -53,7 +62,13 @@ function myHighPropPrevTile(state, cur) {
     if (lv > bestLv) { bestLv = lv; best = idx }
   }
   if (best == null) return null
-  return ((best - 2 + 48) % 48) + 1 // 顺时针前一格
+  return predecessorOf(best)
+}
+
+// 分岔选路：AI 默认走直行（tile.next），让对局稳定可复现
+export function aiChooseFork(state, player, tile, options) {
+  if (options.includes(tile.next)) return tile.next
+  return options[0]
 }
 
 export function aiDecide(state, playerId) {

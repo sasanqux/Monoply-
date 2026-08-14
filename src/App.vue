@@ -41,6 +41,7 @@ function startGame(opts) {
   diceThrowing.value = false
   diceRolled.value = false
   pendingMove.value = null
+  lastWalkPaths.value = {}
   clearTimeout(animTimer)
   const players = []
   for (let i = 0; i < opts.players; i++) {
@@ -50,23 +51,43 @@ function startGame(opts) {
   scheduleAI()
 }
 
+// 已动画过的 walkPath 快照（按玩家 id）；用于差量计算"本段该走的格子"
+const lastWalkPaths = ref({})
+
+function snapshotWalkPaths(state) {
+  const m = {}
+  for (const p of state.players) m[p.id] = p.walkPath ? [...p.walkPath] : [p.pos]
+  return m
+}
+
+// 由玩家 walkPath 推导本段动画路径：与上一帧做前缀比对，只取新增的部分
+function buildMovePaths(newState, prevMap) {
+  const paths = []
+  const nextMap = {}
+  for (const pl of newState.players) {
+    const wp = pl.walkPath ? [...pl.walkPath] : [pl.pos]
+    nextMap[pl.id] = wp
+    const prev = prevMap[pl.id]
+    let startIdx = 0
+    if (prev && wp.length >= prev.length && prev.length > 0) {
+      let ok = true
+      for (let i = 0; i < prev.length; i++) {
+        if (wp[i] !== prev[i]) { ok = false; break }
+      }
+      if (ok) startIdx = prev.length
+    }
+    const seg = wp.slice(startIdx)
+    if (seg.length > 1) paths.push({ pid: pl.id, path: seg })
+  }
+  return { paths, nextMap }
+}
+
 function dispatch(action) {
   if (!state.value || state.value.status !== 'playing') return
-  const prevPos = state.value.players.map((p) => p.pos)
-  const prevDir = state.value.players.map((p) => p.direction ?? 1)
+  const prevMap = lastWalkPaths.value
   state.value = gameReducer(state.value, action)
-  // 计算每个移动玩家的逐格路径（供棋子走格动画）
-  const paths = state.value.players.map((pl, i) => {
-    if (prevPos[i] === pl.pos) return null
-    const dir = prevDir[i] === -1 ? -1 : 1
-    const path = []
-    let cur = prevPos[i]
-    while (cur !== pl.pos) {
-      cur = ((cur - 1 + dir + 48) % 48) + 1
-      path.push(cur)
-    }
-    return { pid: pl.id, path: [prevPos[i], ...path] }
-  }).filter(Boolean)
+  const { paths, nextMap } = buildMovePaths(state.value, prevMap)
+  lastWalkPaths.value = nextMap
   lastMove.value = {
     paths,
     n: (lastMove.value?.n ?? 0) + 1,
@@ -92,25 +113,20 @@ function onDiceThrow() {
   if (!cur || cur.isAI || state.value.phase !== 'roll') return
   diceRolled.value = true
   diceThrowing.value = true
-  const prevPos = state.value.players.map((p) => p.pos)
-  const prevDir = state.value.players.map((p) => p.direction ?? 1)
+  const prevMap = lastWalkPaths.value
   state.value = gameReducer(state.value, { type: 'ROLL_DICE' })
-  const paths = state.value.players.map((pl, i) => {
-    if (prevPos[i] === pl.pos) return null
-    const dir = prevDir[i] === -1 ? -1 : 1
-    const path = []
-    let cur = prevPos[i]
-    while (cur !== pl.pos) {
-      cur = ((cur - 1 + dir + 48) % 48) + 1
-      path.push(cur)
-    }
-    return { pid: pl.id, path: [prevPos[i], ...path] }
-  }).filter(Boolean)
+  const { paths, nextMap } = buildMovePaths(state.value, prevMap)
+  lastWalkPaths.value = nextMap
   pendingMove.value = {
     paths,
     n: (lastMove.value?.n ?? 0) + 1,
   }
   scheduleAI()
+}
+
+// 分岔路口：人类玩家选路（AI 自动选，不会走到这里）
+function onChooseFork(tileId) {
+  dispatch({ type: 'CHOOSE_FORK', tileId })
 }
 
 // 骰子定格完成：放行走格动画（此时玩家已看清点数）
@@ -424,6 +440,29 @@ const selectHint = computed(() => {
         @close="infoTile = null"
         @upgrade="upgradeFromInfo"
       />
+
+      <!-- 分岔路口选路弹窗（人类玩家暂停等待选方向） -->
+      <div
+        v-if="state.phase === 'fork' && state.pending?.kind === 'fork' && !animating && isMyTurn"
+        class="overlay-layer"
+      >
+        <div class="card-comic card-comic--pad-lg fork-pop">
+          <h3 class="comic-title comic-title--md">⑂ 分岔路口 · 选一条路线</h3>
+          <p class="fork-pop__sub">
+            现在走到「{{ TILES[state.pending.tileId].name }}」，还剩 {{ state.pending.stepsLeft }} 步，选个方向继续走：
+          </p>
+          <div class="fork-pop__opts">
+            <button
+              v-for="opt in state.pending.options"
+              :key="opt"
+              class="btn-comic"
+              @click="onChooseFork(opt)"
+            >
+              {{ TILES[opt].name }}
+            </button>
+          </div>
+        </div>
+      </div>
     </template>
 
     <footer class="app__foot">重庆大富翁 · Comic Style · M0+ 版</footer>
@@ -521,6 +560,26 @@ const selectHint = computed(() => {
   font-size: 12px;
   font-weight: 900;
   opacity: 0.65;
+}
+
+.fork-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: flex-start;
+  max-width: 420px;
+}
+
+.fork-pop__sub {
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.5;
+}
+
+.fork-pop__opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 @media (max-width: 860px) {
