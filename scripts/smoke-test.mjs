@@ -149,6 +149,109 @@ console.log('▶ 卡片效果')
   check('陷害卡送人进监狱', state.players[1].jailLeft === 2)
 }
 
+console.log('▶ B1 新卡（卡片增量 14→21）')
+{
+  let s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  let a = s.players[0]
+  let b = s.players[1]
+  a.hand = [{ id: 'n1', type: 'cashGain', name: '天降横财', desc: '', icon: '' }]
+  a.money = 1000
+  s = gameReducer(s, { type: 'USE_CARD', cardId: 'n1' })
+  check('天降横财 +600', s.players[0].money === 1600)
+
+  s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  a = s.players[0]
+  a.properties = [2]
+  a.levels = { 2: 0 }
+  a.hand = [{ id: 'n2', type: 'freeUpgrade', name: '免费升级', desc: '', icon: '' }]
+  s = gameReducer(s, { type: 'USE_CARD', cardId: 'n2' })
+  check('免费升级 临江门→1级', s.players[0].levels[2] === 1)
+
+  s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  a = s.players[0]
+  a.jailLeft = 2
+  a.hand = [{ id: 'n3', type: 'escape', name: '逃狱卡', desc: '', icon: '' }]
+  s = gameReducer(s, { type: 'USE_CARD', cardId: 'n3' })
+  check('逃狱卡出狱', s.players[0].jailLeft === 0)
+
+  s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  a = s.players[0]
+  a.properties = [2]
+  a.levels = { 2: 1 }
+  a.hand = [{ id: 'n4', type: 'refurbish', name: '整修卡', desc: '', icon: '' }]
+  s = gameReducer(s, { type: 'USE_CARD', cardId: 'n4' })
+  check('整修卡→3级', s.players[0].levels[2] === 3)
+
+  s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  a = s.players[0]
+  b = s.players[1]
+  a.money = 10000
+  b.properties = [20]
+  b.levels = { 20: 0 }
+  a.hand = [{ id: 'n5', type: 'seize', name: '收购令', desc: '', icon: '' }]
+  s = gameReducer(s, { type: 'USE_CARD', cardId: 'n5', target: { tileId: 20 } })
+  check('收购令 抢到对手未升级地', s.players[0].properties.includes(20) && !s.players[1].properties.includes(20))
+
+  s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  a = s.players[0]
+  a.properties = [2, 3]
+  a.levels = { 2: 0, 3: 0 }
+  a.hand = [{ id: 'n6', type: 'monopoly', name: '垄断红利', desc: '', icon: '' }]
+  s = gameReducer(s, { type: 'USE_CARD', cardId: 'n6' })
+  check('垄断红利 集齐商圈全+1级', s.players[0].levels[2] === 1 && s.players[0].levels[3] === 1)
+
+  s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  a = s.players[0]
+  b = s.players[1]
+  b.properties = [20]
+  b.money = 5000
+  a.hand = [{ id: 'n7', type: 'audit', name: '查税卡', desc: '', icon: '' }]
+  s = gameReducer(s, { type: 'USE_CARD', cardId: 'n7', target: { playerId: 'p2' } })
+  check('查税卡 对手扣税', s.players[1].money < 5000)
+
+  s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  s.players[0].hand = [{ id: 'n8', type: 'cashGain', name: '天降横财', desc: '', icon: '' }]
+  s.phase = 'landed'
+  const d1 = aiDecide(s, 'p1')
+  check('AI 持天降横财 → 用', d1?.type === 'USE_CARD')
+
+  s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  s.players[0].hand = [{ id: 'n9', type: 'seize', name: '收购令', desc: '', icon: '' }]
+  s.players[1].properties = [20]
+  s.players[1].levels = { 20: 0 }
+  s.players[0].money = 10000
+  s.phase = 'landed'
+  const d2 = aiDecide(s, 'p1')
+  check('AI 持收购令且对手有未升级地 → 用', d2?.type === 'USE_CARD' && d2?.target?.tileId === 20)
+}
+
 console.log('▶ 道具系统')
 {
   let state = makeState([

@@ -1,8 +1,8 @@
 // ai.js — AI 决策（一档智能·会用卡/道具/轻轨）
 // 决策优先级：买地 → 乘轻轨 → 即时卡 → 攻击卡 → 放道具 → 升级 → 结束
-import { TILES, isPropertyTile, isBridge, isMetro, METRO_FEE } from './board.js'
+import { TILES, isPropertyTile, isBridge, isMetro, METRO_FEE, GROUPS } from './board.js'
 import { currentPlayer } from './turn.js'
-import { canUpgrade, upgradeCost } from './property.js'
+import { canUpgrade, upgradeCost, isGroupComplete } from './property.js'
 
 const SAFETY_RATIO = 0.2
 
@@ -108,7 +108,12 @@ export function aiDecide(state, playerId) {
             return cur.money < avg * 0.5 // 现金低于平均一半才均富
           })()
             : c.type === 'steal' ? enemyWithCard(state, cur) != null
-              : false
+              : c.type === 'cashGain' ? true
+                : c.type === 'freeUpgrade' ? cur.properties.some((i) => isPropertyTile(TILES[i]) && (cur.levels[i] ?? 0) < 3)
+                  : c.type === 'refurbish' ? cur.properties.some((i) => isPropertyTile(TILES[i]))
+                    : c.type === 'monopoly' ? Object.keys(GROUPS).some((g) => isGroupComplete(state, g))
+                      : c.type === 'escape' ? cur.jailLeft > 0
+                        : false
     )
     if (instant) return { type: 'USE_CARD', cardId: instant.id }
 
@@ -124,7 +129,24 @@ export function aiDecide(state, playerId) {
           })()
             : c.type === 'closeBridge' ? enemyBridge(state, cur) != null
               : (c.type === 'frame' || c.type === 'hold') ? randomEnemy(state, cur) != null
-                : false
+                : c.type === 'seize' ? (() => {
+                  for (const p of state.players) {
+                    if (!p.alive || p.id === cur.id) continue
+                    const t = p.properties.find((i) => isPropertyTile(TILES[i]) && (p.levels[i] ?? 0) < 1 && cur.money >= Math.floor(TILES[i].price * 1.2))
+                    if (t != null) return true
+                  }
+                  return false
+                })()
+                  : c.type === 'audit' ? (() => {
+                    for (const p of state.players) {
+                      if (!p.alive || p.id === cur.id) continue
+                      for (const i of p.properties) {
+                        if (isPropertyTile(TILES[i]) && p.money >= Math.floor(TILES[i].price * 0.3)) return true
+                      }
+                    }
+                    return false
+                  })()
+                    : false
     )
     if (attack) {
       if (attack.type === 'demolish' || attack.type === 'monster') {
@@ -146,6 +168,20 @@ export function aiDecide(state, playerId) {
       if (attack.type === 'frame' || attack.type === 'hold') {
         const t = randomEnemy(state, cur)
         if (t != null) return { type: 'USE_CARD', cardId: attack.id, target: { playerId: t } }
+      }
+      if (attack.type === 'seize') {
+        for (const p of state.players) {
+          if (!p.alive || p.id === cur.id) continue
+          const t = p.properties.find((i) => isPropertyTile(TILES[i]) && (p.levels[i] ?? 0) < 1 && cur.money >= Math.floor(TILES[i].price * 1.2))
+          if (t != null) return { type: 'USE_CARD', cardId: attack.id, target: { tileId: t } }
+        }
+      }
+      if (attack.type === 'audit') {
+        for (const p of state.players) {
+          if (!p.alive || p.id === cur.id) continue
+          const has = p.properties.some((i) => isPropertyTile(TILES[i]) && p.money >= Math.floor(TILES[i].price * 0.3))
+          if (has) return { type: 'USE_CARD', cardId: attack.id, target: { playerId: p.id } }
+        }
       }
     }
 
