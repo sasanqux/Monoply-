@@ -138,7 +138,7 @@ watch(
   <div class="fx" aria-hidden="true">
     <!-- 掷骰大骰子 -->
     <div v-if="diceFx" :key="diceFx.id" class="fx__dice-wrap">
-      <span v-for="(d, i) in diceFx.dice" :key="i" class="fx__dice" :style="{ animationDelay: (i * 0.15) + 's' }">
+      <span v-for="(d, i) in diceFx.dice" :key="i" class="fx__dice" :class="'fx__dice--' + i">
         <ComicIcon name="dice" :size="76" />
         <b class="fx__dice-num">{{ d }}</b>
       </span>
@@ -189,10 +189,11 @@ watch(
   display: flex;
   align-items: center;
   gap: 16px;
-  background: rgba(255, 254, 240, 0.92);
-  border: 4px solid var(--ink);
+  /* 漫画 POW! 风：黑底黄边，白骰子在黑底上立刻清晰 */
+  background: var(--ink);
+  border: 4px solid var(--pop-yellow);
   border-radius: 14px;
-  box-shadow: 5px 5px 0 0 var(--ink);
+  box-shadow: 5px 5px 0 0 var(--pop-red);
   padding: 14px 20px;
   z-index: 25;
 }
@@ -208,6 +209,11 @@ watch(
   animation: dice-drop 0.8s cubic-bezier(0.3, 1.6, 0.5, 1) both, dice-land 0.9s 0.8s ease both, dice-fade 0.4s 4s ease both;
 }
 
+/* 第二颗骰子稍微延迟落下，更有节奏感（CSS 变量避免覆盖 shorthand 里的多个延迟） */
+.fx__dice--1 {
+  animation-delay: 0.15s, 0.95s, 4.15s;
+}
+
 .fx__dice-num {
   position: absolute;
   top: 50%;
@@ -215,9 +221,10 @@ watch(
   transform: translate(-50%, -50%);
   font-size: 34px;
   font-weight: 900;
-  color: var(--ink);
+  color: #1a1a1a;
   z-index: 2;
   text-shadow: 0 0 3px #fff, 0 0 4px #fff;
+  pointer-events: none;
 }
 
 /* 点数合计（"= 7"大字，弹跳结束后才显现） */
@@ -227,10 +234,10 @@ watch(
   font-size: 44px;
   font-weight: 900;
   font-style: italic;
-  color: var(--pop-red);
+  color: var(--pop-yellow);
   -webkit-text-stroke: 2.5px var(--ink);
   paint-order: stroke fill;
-  text-shadow: 4px 4px 0 rgba(26, 26, 26, 0.8);
+  text-shadow: 3px 3px 0 var(--pop-red);
   animation: dice-sum-in 0.3s 1.7s ease both;
   white-space: nowrap;
 }
