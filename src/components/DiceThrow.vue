@@ -74,20 +74,17 @@ let thrown = false
 function boardRect() {
   return props.boardEl?.getBoundingClientRect?.() || null
 }
-// 初始位置：操作面板（信息窗口）右侧靠中间，跟游戏界面一体
+// 初始位置：紧贴棋盘（地图）正下方居中偏右，跟游戏界面一体
 function homePos() {
   const w = pairWidth(dieCount.value)
-  const a = props.anchorEl?.getBoundingClientRect?.()
-  if (a) {
-    // 面板右侧，竖直中间
+  const b = boardRect()
+  if (b) {
     return {
-      x: a.right - w - 10,
-      y: a.top + a.height / 2 - DIE / 2,
+      x: b.left + b.width * 0.62 - w / 2,
+      y: b.bottom + 10,
     }
   }
-  const b = boardRect()
-  if (b) return { x: b.left + b.width / 2 - w / 2, y: b.bottom + 12 }
-  return { x: window.innerWidth / 2 - w / 2, y: window.innerHeight - 110 }
+  return { x: window.innerWidth / 2 - w / 2, y: window.innerHeight - 100 }
 }
 
 function resetIdle() {

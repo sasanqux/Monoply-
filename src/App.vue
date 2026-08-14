@@ -460,6 +460,7 @@ const selectHint = computed(() => {
 }
 
 .board-wrap {
+  display: block;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }

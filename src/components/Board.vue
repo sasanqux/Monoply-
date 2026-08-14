@@ -216,7 +216,10 @@ function onTile(t) {
 <style scoped>
 .board {
   position: relative;
+  /* 宽高比固定 100:85；max-width 限幅保证棋盘+操作面板+骰子在首屏内 */
   width: 100%;
+  max-width: 70.6vh;
+  margin: 0 auto;
   aspect-ratio: 100 / 85;
   container-type: inline-size;
   border: 4px solid var(--ink);

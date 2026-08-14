@@ -50,10 +50,9 @@ const statusText = computed(() => {
     </div>
 
     <div v-if="isMyTurn" class="actions__btns">
-      <!-- 掷骰阶段：骰子实体在棋盘下方，可拖拽投掷 -->
+      <!-- 掷骰阶段：骰子在棋盘下方（提示词在骰子下方），这里只显示状态文字 -->
       <template v-if="state.phase === 'roll'">
         <span v-if="animating" class="actions__roll-hint">🎲 骰子飞行中…</span>
-        <span v-else class="actions__roll-hint">拖起下面的骰子，扔到棋盘上</span>
       </template>
 
       <template v-else-if="state.phase === 'landed'">
