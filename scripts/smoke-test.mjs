@@ -65,9 +65,9 @@ console.log('▶ 两江拦截')
   player.money = 10000
   const r2 = movePlayer(s, player, [1, 1])
   check('封桥后被拦在江边', r2.blocked === true && r2.pos === 3)
-  player.ferry = true
+  player.ferry = true // 桥机制：ferry 标志可无视拦截（地图机制，非轮渡卡）
   const r3 = movePlayer(s, player, [1, 1])
-  check('轮渡卡无视拦截', r3.pos === 5)
+  check('ferry 标志无视拦截', r3.pos === 5)
   // 47 上清寺 → 48 千厮门大桥
   player.ferry = false
   player.pos = 47
@@ -116,57 +116,23 @@ console.log('▶ 卡片效果')
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   let a = state.players[0]
-  let b = state.players[1]
-  a.money = 5000
-  b.money = 2000
-  a.hand = [{ id: 'c1', type: 'equalize', name: '均富卡', desc: '', icon: '' }]
-  state = gameReducer(state, { type: 'USE_CARD', cardId: 'c1' })
-  a = state.players[0]
-  b = state.players[1]
-  check('均富卡平分现金', a.money === b.money)
   a.money = 10000
   a.hand = [{ id: 'c2', type: 'buy', name: '购地卡', desc: '', icon: '' }]
   state = gameReducer(state, { type: 'USE_CARD', cardId: 'c2', target: { tileId: 2 } })
   a = state.players[0]
   check('购地卡买到临江门', a.properties.includes(2))
-  b.properties = [20]
-  b.levels = { 20: 2 }
-  a.hand = [{ id: 'c3', type: 'nuke', name: '核弹卡', desc: '', icon: '' }]
-  state = gameReducer(state, { type: 'USE_CARD', cardId: 'c3', target: { tileId: 20 } })
-  b = state.players[1]
-  check('核弹卡炸平对手地产', !b.properties.includes(20))
-  a = state.players[0]
-  a.hand = [{ id: 'c4', type: 'ferry', name: '轮渡卡', desc: '', icon: '' }]
-  state = gameReducer(state, { type: 'USE_CARD', cardId: 'c4' })
-  check('轮渡卡生效', state.players[0].ferry === true)
-  a = state.players[0]
-  a.hand = [{ id: 'c5', type: 'closeBridge', name: '封桥卡', desc: '', icon: '' }]
-  state = gameReducer(state, { type: 'USE_CARD', cardId: 'c5', target: { tileId: 4 } })
-  check('封桥卡封闭黄花园大桥', state.closedBridges[4] === 2)
-  a = state.players[0]
   a.hand = [{ id: 'c6', type: 'frame', name: '陷害卡', desc: '', icon: '' }]
   state = gameReducer(state, { type: 'USE_CARD', cardId: 'c6', target: { playerId: 'p2' } })
   check('陷害卡送人进监狱', state.players[1].jailLeft === 2)
 }
 
-console.log('▶ B1 新卡（卡片增量 14→21）')
+console.log('▶ 即时卡（免费升级 / 逃狱卡）')
 {
   let s = makeState([
     { id: 'p1', name: 'A', isAI: true },
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   let a = s.players[0]
-  let b = s.players[1]
-  a.hand = [{ id: 'n1', type: 'cashGain', name: '天降横财', desc: '', icon: '' }]
-  a.money = 1000
-  s = gameReducer(s, { type: 'USE_CARD', cardId: 'n1' })
-  check('天降横财 +600', s.players[0].money === 1600)
-
-  s = makeState([
-    { id: 'p1', name: 'A', isAI: true },
-    { id: 'p2', name: 'B', isAI: true },
-  ], 40)
-  a = s.players[0]
   a.properties = [2]
   a.levels = { 2: 0 }
   a.hand = [{ id: 'n2', type: 'freeUpgrade', name: '免费升级', desc: '', icon: '' }]
@@ -182,74 +148,6 @@ console.log('▶ B1 新卡（卡片增量 14→21）')
   a.hand = [{ id: 'n3', type: 'escape', name: '逃狱卡', desc: '', icon: '' }]
   s = gameReducer(s, { type: 'USE_CARD', cardId: 'n3' })
   check('逃狱卡出狱', s.players[0].jailLeft === 0)
-
-  s = makeState([
-    { id: 'p1', name: 'A', isAI: true },
-    { id: 'p2', name: 'B', isAI: true },
-  ], 40)
-  a = s.players[0]
-  a.properties = [2]
-  a.levels = { 2: 1 }
-  a.hand = [{ id: 'n4', type: 'refurbish', name: '整修卡', desc: '', icon: '' }]
-  s = gameReducer(s, { type: 'USE_CARD', cardId: 'n4' })
-  check('整修卡→3级', s.players[0].levels[2] === 3)
-
-  s = makeState([
-    { id: 'p1', name: 'A', isAI: true },
-    { id: 'p2', name: 'B', isAI: true },
-  ], 40)
-  a = s.players[0]
-  b = s.players[1]
-  a.money = 10000
-  b.properties = [20]
-  b.levels = { 20: 0 }
-  a.hand = [{ id: 'n5', type: 'seize', name: '收购令', desc: '', icon: '' }]
-  s = gameReducer(s, { type: 'USE_CARD', cardId: 'n5', target: { tileId: 20 } })
-  check('收购令 抢到对手未升级地', s.players[0].properties.includes(20) && !s.players[1].properties.includes(20))
-
-  s = makeState([
-    { id: 'p1', name: 'A', isAI: true },
-    { id: 'p2', name: 'B', isAI: true },
-  ], 40)
-  a = s.players[0]
-  a.properties = [2, 3]
-  a.levels = { 2: 0, 3: 0 }
-  a.hand = [{ id: 'n6', type: 'monopoly', name: '垄断红利', desc: '', icon: '' }]
-  s = gameReducer(s, { type: 'USE_CARD', cardId: 'n6' })
-  check('垄断红利 集齐商圈全+1级', s.players[0].levels[2] === 1 && s.players[0].levels[3] === 1)
-
-  s = makeState([
-    { id: 'p1', name: 'A', isAI: true },
-    { id: 'p2', name: 'B', isAI: true },
-  ], 40)
-  a = s.players[0]
-  b = s.players[1]
-  b.properties = [20]
-  b.money = 5000
-  a.hand = [{ id: 'n7', type: 'audit', name: '查税卡', desc: '', icon: '' }]
-  s = gameReducer(s, { type: 'USE_CARD', cardId: 'n7', target: { playerId: 'p2' } })
-  check('查税卡 对手扣税', s.players[1].money < 5000)
-
-  s = makeState([
-    { id: 'p1', name: 'A', isAI: true },
-    { id: 'p2', name: 'B', isAI: true },
-  ], 40)
-  s.players[0].hand = [{ id: 'n8', type: 'cashGain', name: '天降横财', desc: '', icon: '' }]
-  s.phase = 'landed'
-  const d1 = aiDecide(s, 'p1')
-  check('AI 持天降横财 → 用', d1?.type === 'USE_CARD')
-
-  s = makeState([
-    { id: 'p1', name: 'A', isAI: true },
-    { id: 'p2', name: 'B', isAI: true },
-  ], 40)
-  s.players[0].hand = [{ id: 'n9', type: 'seize', name: '收购令', desc: '', icon: '' }]
-  s.players[1].properties = [20]
-  s.players[1].levels = { 20: 0 }
-  s.players[0].money = 10000
-  s.phase = 'landed'
-  const d2 = aiDecide(s, 'p1')
-  check('AI 持收购令且对手有未升级地 → 用', d2?.type === 'USE_CARD' && d2?.target?.tileId === 20)
 }
 
 console.log('▶ 道具系统')
@@ -368,18 +266,8 @@ console.log('▶ 免罪卡豁免过桥费')
 
 console.log('▶ AI 会用卡/道具/乘轻轨')
 {
-  // 封桥卡
-  let s = makeState([
-    { id: 'p1', name: 'A', isAI: true },
-    { id: 'p2', name: 'B', isAI: true },
-  ], 40)
-  s.players[0].hand = [{ id: 'c1', type: 'closeBridge', name: '封桥卡', desc: '', icon: '' }]
-  s.players[1].properties = [4]
-  s.phase = 'landed'
-  const a1 = aiDecide(s, 'p1')
-  check('AI 持封桥卡且对手有桥 → 用封桥卡', a1?.type === 'USE_CARD' && a1?.target?.tileId === 4)
   // 拆除卡
-  s = makeState([
+  let s = makeState([
     { id: 'p1', name: 'A', isAI: true },
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
@@ -411,16 +299,6 @@ console.log('▶ AI 会用卡/道具/乘轻轨')
   s.phase = 'landed'
   const a4 = aiDecide(s, 'p1')
   check('AI 在轻轨站有钱 → 乘轻轨', a4?.type === 'TRAVEL_METRO' && TILES[a4.targetTileId]?.type === 'metro')
-  // 轮渡卡（在江边）
-  s = makeState([
-    { id: 'p1', name: 'A', isAI: true },
-    { id: 'p2', name: 'B', isAI: true },
-  ], 40)
-  s.players[0].pos = 3
-  s.players[0].hand = [{ id: 'c5', type: 'ferry', name: '轮渡卡', desc: '', icon: '' }]
-  s.phase = 'landed'
-  const a5 = aiDecide(s, 'p1')
-  check('AI 在江边持轮渡卡 → 用轮渡卡', a5?.type === 'USE_CARD')
   // 无适用操作
   s = makeState([
     { id: 'p1', name: 'A', isAI: true },
@@ -452,4 +330,3 @@ console.log('▶ reducer 能处理 Proxy（浏览器真实场景）')
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`)
 if (fail > 0) process.exit(1)
 console.log('SMOKE OK')
-

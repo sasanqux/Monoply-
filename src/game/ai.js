@@ -1,8 +1,8 @@
 // ai.js — AI 决策（一档智能·会用卡/道具/轻轨）
 // 决策优先级：买地 → 乘轻轨 → 即时卡 → 攻击卡 → 放道具 → 升级 → 结束
-import { TILES, isPropertyTile, isBridge, isMetro, METRO_FEE, GROUPS } from './board.js'
+import { TILES, isPropertyTile, isMetro, METRO_FEE } from './board.js'
 import { currentPlayer } from './turn.js'
-import { canUpgrade, upgradeCost, isGroupComplete } from './property.js'
+import { canUpgrade, upgradeCost } from './property.js'
 
 const SAFETY_RATIO = 0.2
 
@@ -11,7 +11,7 @@ function ownProps(cur) {
   return cur.properties.filter((i) => isPropertyTile(TILES[i]))
 }
 
-// 对手拥有的最高级地产（用于拆楼/怪兽/核弹）
+// 对手拥有的最高级地产（用于拆楼/怪兽）
 function bestEnemyProp(state, cur) {
   let best = null
   let bestScore = -1
@@ -28,18 +28,6 @@ function bestEnemyProp(state, cur) {
     }
   }
   return best
-}
-
-// 对手拥有的桥（用于封桥）
-function enemyBridge(state, cur) {
-  for (const p of state.players) {
-    if (!p.alive || p.id === cur.id) continue
-    for (const idx of p.properties) {
-      const t = TILES[idx]
-      if (isBridge(t) && !(state.closedBridges[idx] > 0)) return idx
-    }
-  }
-  return null
 }
 
 // 有手牌的对手（用于抢夺）
@@ -100,20 +88,11 @@ export function aiDecide(state, playerId) {
 
     // 3. 即时卡（无需目标）
     const instant = cur.hand.find((c) =>
-      c.type === 'ferry' ? TILES[cur.pos].riverEdge && !cur.ferry
-        : c.type === 'shield' ? true
-          : c.type === 'equalize' ? (() => {
-            const alive = state.players.filter((p) => p.alive)
-            const avg = alive.reduce((s, p) => s + p.money, 0) / alive.length
-            return cur.money < avg * 0.5 // 现金低于平均一半才均富
-          })()
-            : c.type === 'steal' ? enemyWithCard(state, cur) != null
-              : c.type === 'cashGain' ? true
-                : c.type === 'freeUpgrade' ? cur.properties.some((i) => isPropertyTile(TILES[i]) && (cur.levels[i] ?? 0) < 3)
-                  : c.type === 'refurbish' ? cur.properties.some((i) => isPropertyTile(TILES[i]))
-                    : c.type === 'monopoly' ? Object.keys(GROUPS).some((g) => isGroupComplete(state, g))
-                      : c.type === 'escape' ? cur.jailLeft > 0
-                        : false
+      c.type === 'shield' ? true
+        : c.type === 'steal' ? enemyWithCard(state, cur) != null
+          : c.type === 'freeUpgrade' ? cur.properties.some((i) => isPropertyTile(TILES[i]) && (cur.levels[i] ?? 0) < 3)
+            : c.type === 'escape' ? cur.jailLeft > 0
+              : false
     )
     if (instant) return { type: 'USE_CARD', cardId: instant.id }
 
@@ -121,67 +100,17 @@ export function aiDecide(state, playerId) {
     const attack = cur.hand.find((c) =>
       c.type === 'demolish' ? bestEnemyProp(state, cur)?.lv >= 1
         : c.type === 'monster' ? bestEnemyProp(state, cur) != null
-          : c.type === 'nuke' ? (() => {
-            for (const p of state.players) {
-              if (p.alive && p.id !== cur.id && p.properties.some((i) => isPropertyTile(TILES[i]))) return true
-            }
-            return false
-          })()
-            : c.type === 'closeBridge' ? enemyBridge(state, cur) != null
-              : (c.type === 'frame' || c.type === 'hold') ? randomEnemy(state, cur) != null
-                : c.type === 'seize' ? (() => {
-                  for (const p of state.players) {
-                    if (!p.alive || p.id === cur.id) continue
-                    const t = p.properties.find((i) => isPropertyTile(TILES[i]) && (p.levels[i] ?? 0) < 1 && cur.money >= Math.floor(TILES[i].price * 1.2))
-                    if (t != null) return true
-                  }
-                  return false
-                })()
-                  : c.type === 'audit' ? (() => {
-                    for (const p of state.players) {
-                      if (!p.alive || p.id === cur.id) continue
-                      for (const i of p.properties) {
-                        if (isPropertyTile(TILES[i]) && p.money >= Math.floor(TILES[i].price * 0.3)) return true
-                      }
-                    }
-                    return false
-                  })()
-                    : false
+          : (c.type === 'frame' || c.type === 'hold') ? randomEnemy(state, cur) != null
+            : false
     )
     if (attack) {
       if (attack.type === 'demolish' || attack.type === 'monster') {
         const t = bestEnemyProp(state, cur)
         if (t) return { type: 'USE_CARD', cardId: attack.id, target: { tileId: t.tileId } }
       }
-      if (attack.type === 'nuke') {
-        for (const p of state.players) {
-          if (p.alive && p.id !== cur.id) {
-            const prop = p.properties.find((i) => isPropertyTile(TILES[i]))
-            if (prop != null) return { type: 'USE_CARD', cardId: attack.id, target: { tileId: prop } }
-          }
-        }
-      }
-      if (attack.type === 'closeBridge') {
-        const b = enemyBridge(state, cur)
-        if (b != null) return { type: 'USE_CARD', cardId: attack.id, target: { tileId: b } }
-      }
       if (attack.type === 'frame' || attack.type === 'hold') {
         const t = randomEnemy(state, cur)
         if (t != null) return { type: 'USE_CARD', cardId: attack.id, target: { playerId: t } }
-      }
-      if (attack.type === 'seize') {
-        for (const p of state.players) {
-          if (!p.alive || p.id === cur.id) continue
-          const t = p.properties.find((i) => isPropertyTile(TILES[i]) && (p.levels[i] ?? 0) < 1 && cur.money >= Math.floor(TILES[i].price * 1.2))
-          if (t != null) return { type: 'USE_CARD', cardId: attack.id, target: { tileId: t } }
-        }
-      }
-      if (attack.type === 'audit') {
-        for (const p of state.players) {
-          if (!p.alive || p.id === cur.id) continue
-          const has = p.properties.some((i) => isPropertyTile(TILES[i]) && p.money >= Math.floor(TILES[i].price * 0.3))
-          if (has) return { type: 'USE_CARD', cardId: attack.id, target: { playerId: p.id } }
-        }
       }
     }
 
