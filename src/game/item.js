@@ -1,5 +1,5 @@
 // item.js — 5 种道具：数据 + 放置/触发
-import { TILES } from './board.js'
+import { TILES, VEHICLES } from './board.js'
 import { addMoney } from './bank.js'
 import { checkBankrupt } from './gameOver.js'
 
@@ -45,9 +45,10 @@ export function placeItem(state, player, itemType, tileId) {
   return true
 }
 
-// 遥控骰子：设置指定点数（2-12）
+// 遥控骰子：设置指定点数（范围 = 当前载具骰子数 × 1~6）
 export function applyRemoteDice(state, player, value) {
-  const v = Math.max(2, Math.min(12, Math.floor(value)))
+  const count = VEHICLES[player.vehicle]?.dice ?? 1
+  const v = Math.max(count, Math.min(count * 6, Math.floor(value)))
   player.remoteDice = v
   state.log.push(`${player.name} 使用遥控骰子，下次掷 ${v} 点`)
   return true

@@ -5,7 +5,8 @@ import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 
 const props = defineProps({
   canThrow: Boolean,   // 当前是否可投掷
-  finalDice: Array,    // 真实点数 [a, b, ...]
+  finalDice: Array,    // 真实点数 [a, b, ...]（投掷后才有）
+  diceCount: Number,   // 当前载具骰子数（idle 时用于显示待投骰子数量）
   boardEl: Object,     // 棋盘 DOM（算落点）
   anchorEl: Object,    // 操作面板 DOM（初始位置锚点：面板右侧靠中间）
 })
@@ -60,7 +61,8 @@ const GAP = 8
 function pairWidth(count) {
   return count * DIE + (count - 1) * GAP
 }
-const dieCount = computed(() => Math.max(1, props.finalDice?.length || 1))
+// 骰子数量：idle 时用载具骰子数（diceCount），投掷后用 finalDice 长度（两者一致）
+const dieCount = computed(() => props.diceCount || Math.max(1, props.finalDice?.length || 1))
 
 let dragStart = null
 let lastMove = null
@@ -276,7 +278,6 @@ const dieStyles = computed(() =>
 
 <template>
   <div v-if="state !== 'gone'" class="dice-throw">
-    <p v-if="state === 'idle'" class="dice-throw__hint">🎯 拖到棋盘上扔出去</p>
     <div
       class="dice-throw__pair"
       :class="{ 'dice-throw__pair--drag': state === 'drag' }"
@@ -285,10 +286,10 @@ const dieStyles = computed(() =>
     >
       <p v-if="state === 'idle'" class="dice-throw__hint">🎯 拖到棋盘上扔出去</p>
       <div
-        v-for="(f, i) in (props.finalDice?.length ? props.finalDice : [1])"
+        v-for="i in dieCount"
         :key="i"
         class="die3d"
-        :style="dieStyles[i]"
+        :style="dieStyles[i - 1]"
       >
         <div v-for="face in 6" :key="face" class="die3d__face" :style="{ transform: FACE_TRANSFORM[face] }">
           <svg viewBox="0 0 46 46" class="die3d__svg" aria-hidden="true">

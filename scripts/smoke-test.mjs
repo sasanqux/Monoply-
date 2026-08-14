@@ -169,8 +169,13 @@ console.log('▶ 道具系统')
   check('路障被消耗', state.boardItems.length === 0)
   a = state.players[0]
   a.items = [{ id: 'i2', type: 'remoteDice', name: '遥控骰子', desc: '', icon: '' }]
-  state = gameReducer(state, { type: 'USE_ITEM', itemId: 'i2', value: 7 })
-  check('遥控骰子设定点数', state.players[0].remoteDice === 7)
+  state = gameReducer(state, { type: 'USE_ITEM', itemId: 'i2', value: 6 })
+  check('遥控骰子设定点数（走路 1 颗最大 6）', state.players[0].remoteDice === 6)
+  // 越界值 clamp 到合法范围
+  a = state.players[0]
+  a.items = [{ id: 'i2b', type: 'remoteDice', name: '遥控骰子', desc: '', icon: '' }]
+  state = gameReducer(state, { type: 'USE_ITEM', itemId: 'i2b', value: 99 })
+  check('遥控骰子越界 clamp（走路 1 颗 → 6）', state.players[0].remoteDice === 6)
   a = state.players[0]
   a.items = [{ id: 'i3', type: 'portal', name: '传送门', desc: '', icon: '' }]
   state = gameReducer(state, { type: 'USE_ITEM', itemId: 'i3', tileId: 33 })

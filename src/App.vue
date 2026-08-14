@@ -10,7 +10,7 @@ import ResultOverlay from './components/ResultOverlay.vue'
 import LandInfoModal from './components/LandInfoModal.vue'
 import DiceThrow from './components/DiceThrow.vue'
 import ComicIcon from './components/ComicIcon.vue'
-import { createInitialState, gameReducer, aiDecide, currentPlayer, TILES, isPropertyTile, isBridge, cardTargetKind } from './game/index.js'
+import { createInitialState, gameReducer, aiDecide, currentPlayer, TILES, isPropertyTile, isBridge, cardTargetKind, VEHICLES } from './game/index.js'
 
 const AI_NAMES = ['阿蓝', '阿绿', '阿橙', '阿紫', '阿粉', '阿灰', '阿黑']
 
@@ -276,10 +276,17 @@ function useCard(card) {
   }
 }
 
+// 遥控骰子点数范围（跟随载具骰子数）
+const remoteDiceMin = computed(() => {
+  const c = cur.value
+  return c ? VEHICLES[c.vehicle]?.dice ?? 1 : 2
+})
+const remoteDiceMax = computed(() => remoteDiceMin.value * 6)
+
 function useItem(item) {
   if (!isMyTurn.value) return
   if (item.type === 'remoteDice') {
-    remoteValue.value = 7
+    remoteValue.value = Math.min(7, remoteDiceMax.value)
     dicePicker.value = true
     return
   }
@@ -386,7 +393,8 @@ const selectHint = computed(() => {
       <div v-if="dicePicker" class="overlay-layer" @click.self="dicePicker = false">
         <div class="card-comic card-comic--pad-lg dice-panel">
           <h3 class="comic-title comic-title--md dice-panel__title"><ComicIcon name="dice" :size="22" /> 遥控骰子 · 选点数</h3>
-          <input v-model.number="remoteValue" class="input-comic" type="number" min="2" max="12" />
+          <input v-model.number="remoteValue" class="input-comic" type="number" :min="remoteDiceMin" :max="remoteDiceMax" />
+          <p class="dice-panel__range">可设 {{ remoteDiceMin }} ~ {{ remoteDiceMax }} 点（{{ VEHICLES[cur.vehicle].name }} {{ VEHICLES[cur.vehicle].dice }} 颗骰子）</p>
           <div class="dice-panel__btns">
             <button class="btn-comic" @click="confirmRemoteDice">确定</button>
             <button class="btn-comic btn-comic--ghost" @click="dicePicker = false">取消</button>
@@ -401,6 +409,7 @@ const selectHint = computed(() => {
         v-if="canThrowDice || diceThrowing"
         :can-throw="canThrowDice"
         :final-dice="state.dice || undefined"
+        :dice-count="cur ? VEHICLES[cur.vehicle]?.dice : 1"
         :board-el="boardEl"
         :anchor-el="actionPanelEl && actionPanelEl.$el"
         @throw="onDiceThrow"
@@ -505,6 +514,12 @@ const selectHint = computed(() => {
 .dice-panel__btns {
   display: flex;
   gap: 12px;
+}
+
+.dice-panel__range {
+  font-size: 12px;
+  font-weight: 900;
+  opacity: 0.65;
 }
 
 @media (max-width: 860px) {

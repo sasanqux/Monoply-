@@ -13,8 +13,10 @@ export function rollDice() {
 export function rollForPlayer(player) {
   const count = VEHICLES[player.vehicle]?.dice ?? 1
   if (player.remoteDice != null) {
-    const v = player.remoteDice
+    let v = player.remoteDice
     player.remoteDice = null
+    // 防呆：范围必须是 [count, count*6]，否则均分会产生非法骰面
+    v = Math.max(count, Math.min(count * 6, v))
     const dice = []
     let rem = v
     for (let i = 0; i < count; i++) {
