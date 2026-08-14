@@ -75,16 +75,19 @@ function boardRect() {
   return props.boardEl?.getBoundingClientRect?.() || null
 }
 // 初始位置：紧贴棋盘（地图）正下方居中偏右，跟游戏界面一体
+// 注意：棋盘可能比一屏还高（固定 1000px 宽时高约 850px），必须把位置钳制在可视区内，
+// 否则 b.bottom 会落在屏幕下方之外，骰子被顶出可视区看不到
 function homePos() {
   const w = pairWidth(dieCount.value)
   const b = boardRect()
+  const vw = window.innerWidth
+  const vh = window.innerHeight
   if (b) {
-    return {
-      x: b.left + b.width * 0.62 - w / 2,
-      y: b.bottom + 10,
-    }
+    const x = Math.max(12, Math.min(b.left + b.width * 0.6 - w / 2, vw - w - 12))
+    const y = Math.min(b.bottom + 12, vh - 70)
+    return { x, y }
   }
-  return { x: window.innerWidth / 2 - w / 2, y: window.innerHeight - 100 }
+  return { x: vw / 2 - w / 2, y: vh - 90 }
 }
 
 function resetIdle() {
@@ -96,8 +99,10 @@ function resetIdle() {
   thrown = false
 }
 
-onMounted(resetIdle)
-onBeforeUnmount(() => { clearTimeout(animTimer); cancelAnimationFrame(raf) })
+// 窗口尺寸/浏览器缩放变化时，把骰子拉回可视区域（idle 状态才重定位，避免打断投掷动画）
+function onViewportChange() { if (state.value === 'idle') resetIdle() }
+onMounted(() => { resetIdle(); window.addEventListener('resize', onViewportChange) })
+onBeforeUnmount(() => { clearTimeout(animTimer); cancelAnimationFrame(raf); window.removeEventListener('resize', onViewportChange) })
 watch(dieCount, resetIdle)
 // 锚点元素就绪后重新定位（首次挂载时 actionPanelEl 可能尚未赋值）
 watch(
