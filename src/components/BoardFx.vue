@@ -57,11 +57,13 @@ watch(
       }
       walkers.value.push(wobj)
       syncWalking()
-      // 逐格走动：每格 0.2s
+      // 逐格走动：每格 0.2s（通过响应式数组取代理对象修改 seg，触发重渲染）
       const stepMs = 200
       const timer = setInterval(() => {
-        wobj.seg += 1
-        if (wobj.seg >= wobj.path.length) {
+        const w = walkers.value.find((x) => x.key === key)
+        if (!w) { clearInterval(timer); return }
+        w.seg += 1
+        if (w.seg >= w.path.length) {
           clearInterval(timer)
           walkers.value = walkers.value.filter((x) => x.key !== key)
           syncWalking()
