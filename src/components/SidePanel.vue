@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
+import ComicIcon from './ComicIcon.vue'
 import { TILES, VEHICLES, GROUPS, SHOPS, isPropertyTile, isBridge, isMetro, totalAssets, groupTiles } from '../game/index.js'
 
 const props = defineProps({
@@ -79,7 +80,7 @@ function onPlayer(p) {
         >
           <div class="player__row">
             <i class="player__dot" :style="{ background: p.color }">
-              <em v-if="p.vehicle !== 'walk'" class="player__veh">{{ VEHICLES[p.vehicle].icon }}</em>
+              <em v-if="p.vehicle !== 'walk'" class="player__veh"><ComicIcon :name="VEHICLES[p.vehicle].icon" :size="13" /></em>
             </i>
             <span class="player__name">{{ p.name }}<em v-if="p.isAI">AI</em></span>
             <span class="player__status">{{ statusOf(p) }}</span>
@@ -87,9 +88,9 @@ function onPlayer(p) {
               {{ p.bankrupt && p.money < 0 ? '欠¥' + -p.money : '¥' + p.money }}
             </span>
             <span class="player__counts">
-              <i class="cnt" title="卡片">🎴{{ p.hand.length }}</i>
-              <i class="cnt" title="道具">📦{{ p.items.length }}</i>
-              <i class="cnt" title="地产">🏠{{ p.properties.length }}</i>
+              <i class="cnt" title="卡片"><ComicIcon name="card" :size="12" />{{ p.hand.length }}</i>
+              <i class="cnt" title="道具"><ComicIcon name="box" :size="12" />{{ p.items.length }}</i>
+              <i class="cnt" title="地产"><ComicIcon name="home" :size="12" />{{ p.properties.length }}</i>
             </span>
             <span class="player__arrow">{{ expanded === p.id ? '▲' : '▼' }}</span>
           </div>
@@ -102,14 +103,14 @@ function onPlayer(p) {
             </div>
             <div class="pd__row">
               <span class="pd__label">载具</span>
-              <span class="pd__val">{{ VEHICLES[p.vehicle].icon }} {{ VEHICLES[p.vehicle].name }}（{{ VEHICLES[p.vehicle].dice }} 骰）</span>
+              <span class="pd__val"><ComicIcon :name="VEHICLES[p.vehicle].icon" :size="15" /> {{ VEHICLES[p.vehicle].name }}（{{ VEHICLES[p.vehicle].dice }} 骰）</span>
             </div>
             <div v-if="landList(p).length" class="pd__row">
               <span class="pd__label">地产</span>
               <span class="pd__val pd__lands">
                 <span v-for="(l, i) in landList(p)" :key="i" class="pd__land">
                   {{ l.name }}<b v-if="l.tag" class="pd__tag">{{ l.tag }}</b>
-                  <em v-if="l.lv > 0" class="pd__shop">{{ l.shop.icon }}{{ l.lv }}</em>
+                  <em v-if="l.lv > 0" class="pd__shop"><ComicIcon :name="l.shop.icon" :size="11" />{{ l.lv }}</em>
                 </span>
               </span>
             </div>
@@ -125,8 +126,8 @@ function onPlayer(p) {
             <div class="pd__row">
               <span class="pd__label">手牌/道具</span>
               <span class="pd__val pd__bag">
-                🎴{{ p.hand.map((c) => c.name).join('、') || '无' }}
-                ｜ 📦{{ p.items.map((i) => i.name).join('、') || '无' }}
+                <ComicIcon name="card" :size="13" />{{ p.hand.map((c) => c.name).join('、') || '无' }}
+                ｜ <ComicIcon name="box" :size="13" />{{ p.items.map((i) => i.name).join('、') || '无' }}
               </span>
             </div>
           </div>

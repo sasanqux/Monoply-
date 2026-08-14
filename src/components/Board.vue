@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import ComicIcon from './ComicIcon.vue'
 import { TILES, RIVERS, REGIONS, METRO_STATIONS, PATH_POLYLINE, GROUPS, tilePosition, isPropertyTile, isBridge, isMetro, SHOPS } from '../game/index.js'
 
 const props = defineProps({
@@ -158,23 +159,25 @@ function onTile(t) {
       @click="onTile(t)"
     >
       <span class="tile__num">{{ t.id }}</span>
-      <span v-if="isRiverBank(t)" class="tile__bank-mark">🌊</span>
+      <span v-if="isRiverBank(t)" class="tile__bank-mark"><ComicIcon name="wave" :size="13" /></span>
       <span class="tile__name" :style="{ fontSize: nameFont(t.name) }">{{ t.name }}</span>
 
-      <span v-if="isClosed(t.id)" class="tile__closed">🚧</span>
+      <span v-if="isClosed(t.id)" class="tile__closed"><ComicIcon name="closed" :size="16" /></span>
 
       <span v-if="isPropertyTile(t) && ownerOf(t.id)" class="tile__shop" :title="shopOf(t.id).name">
-        {{ shopOf(t.id).icon }}
+        <ComicIcon v-if="shopOf(t.id).icon" :name="shopOf(t.id).icon" :size="13" />
       </span>
       <span v-if="isPropertyTile(t) && ownerOf(t.id)" class="tile__owner" :style="{ background: ownerOf(t.id).color }"></span>
 
       <span class="tile__items">
-        <i v-for="b in itemsOn(t.id)" :key="b.id" :title="b.type">{{ b.type === 'barrier' ? '🚧' : b.type === 'mine' ? '💣' : '🧨' }}</i>
+        <i v-for="b in itemsOn(t.id)" :key="b.id" :title="b.type">
+          <ComicIcon :name="b.type === 'barrier' ? 'barrier' : b.type === 'mine' ? 'mine' : 'bomb'" :size="11" />
+        </i>
       </span>
 
       <span class="tile__pawns">
         <i v-for="p in playersOn(t.id)" :key="p.id" class="pawn" :style="{ background: p.color }">
-          <em v-if="p.vehicle !== 'walk'" class="pawn__veh">{{ p.vehicle === 'bike' ? '🚲' : p.vehicle === 'moto' ? '🛵' : p.vehicle === 'car' ? '🚗' : '✈️' }}</em>
+          <em v-if="p.vehicle !== 'walk'" class="pawn__veh"><ComicIcon :name="p.vehicle === 'bike' ? 'bike' : p.vehicle === 'moto' ? 'moto' : p.vehicle === 'car' ? 'car' : 'plane'" :size="11" /></em>
         </i>
       </span>
     </div>

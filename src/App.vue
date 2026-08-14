@@ -8,6 +8,7 @@ import BagsBar from './components/BagsBar.vue'
 import MyPanelModal from './components/MyPanelModal.vue'
 import ResultOverlay from './components/ResultOverlay.vue'
 import LandInfoModal from './components/LandInfoModal.vue'
+import ComicIcon from './components/ComicIcon.vue'
 import { createInitialState, gameReducer, aiDecide, currentPlayer, TILES, isPropertyTile, isBridge, cardTargetKind } from './game/index.js'
 
 const AI_NAMES = ['阿蓝', '阿绿', '阿橙', '阿紫', '阿粉', '阿灰', '阿黑']
@@ -229,7 +230,7 @@ const selectHint = computed(() => {
       <div class="app__game">
         <main class="app__board">
           <div v-if="selecting" class="select-bar bubble">
-            <span class="select-bar__text">👉 {{ selectHint }}</span>
+            <span class="select-bar__text"><ComicIcon name="target" :size="16" /> {{ selectHint }}</span>
             <button class="btn-comic btn-comic--sm btn-comic--ghost" @click="cancelSelect">取消</button>
           </div>
           <div class="board-wrap">
@@ -268,7 +269,7 @@ const selectHint = computed(() => {
       <!-- 遥控骰子点数选择 -->
       <div v-if="dicePicker" class="overlay-layer" @click.self="dicePicker = false">
         <div class="card-comic card-comic--pad-lg dice-panel">
-          <h3 class="comic-title comic-title--md">🎲 遥控骰子 · 选点数</h3>
+          <h3 class="comic-title comic-title--md dice-panel__title"><ComicIcon name="dice" :size="22" /> 遥控骰子 · 选点数</h3>
           <input v-model.number="remoteValue" class="input-comic" type="number" min="2" max="12" />
           <div class="dice-panel__btns">
             <button class="btn-comic" @click="confirmRemoteDice">确定</button>

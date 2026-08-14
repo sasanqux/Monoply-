@@ -26,18 +26,18 @@ export const GROUPS = {
 // 特色建筑：盖楼改为开店（等级 0-3）
 export const SHOPS = [
   { level: 0, name: '空地', icon: '' },
-  { level: 1, name: '小面馆', icon: '🍜' },
-  { level: 2, name: '火锅店', icon: '🍲' },
-  { level: 3, name: '串串店', icon: '🍢' },
+  { level: 1, name: '小面馆', icon: 'noodle' },
+  { level: 2, name: '火锅店', icon: 'hotpot' },
+  { level: 3, name: '串串店', icon: 'skewer' },
 ]
 
 // 载具 → 掷骰数
 export const VEHICLES = {
-  walk: { name: '走路', dice: 2, icon: '🏃' },
-  bike: { name: '自行车', dice: 3, icon: '🚲' },
-  moto: { name: '摩托', dice: 4, icon: '🛵' },
-  car: { name: '汽车', dice: 5, icon: '🚗' },
-  plane: { name: '飞机', dice: 6, icon: '✈️' },
+  walk: { name: '走路', dice: 2, icon: 'bike' },
+  bike: { name: '自行车', dice: 3, icon: 'bike' },
+  moto: { name: '摩托', dice: 4, icon: 'moto' },
+  car: { name: '汽车', dice: 5, icon: 'car' },
+  plane: { name: '飞机', dice: 6, icon: 'plane' },
 }
 export const VEHICLE_ORDER = ['walk', 'bike', 'moto', 'car', 'plane']
 

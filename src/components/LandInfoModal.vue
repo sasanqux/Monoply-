@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import ComicIcon from './ComicIcon.vue'
 import {
   TILES, GROUPS, SHOPS, isPropertyTile, isBridge, isMetro,
   getRent, isGroupComplete, groupTiles, upgradeCost,
@@ -127,14 +128,14 @@ const canUpgrade = computed(() => {
         <div v-if="owner" class="info__row">
           <span class="info__label">当前租金</span>
           <span class="info__val info__val--hot">¥{{ currentRent }}</span>
-          <span v-if="level > 0" class="info__hint">（{{ SHOPS[level].icon }} 等级 {{ level }}）</span>
+          <span v-if="level > 0" class="info__hint">（<ComicIcon :name="SHOPS[level].icon" :size="13" /> 等级 {{ level }}）</span>
           <span v-else class="info__hint">（空地）</span>
         </div>
         <div v-if="owner" class="info__row">
           <span class="info__label">店铺</span>
           <span class="info__val">
-            {{ SHOPS[level].icon }} {{ SHOPS[level].name }}
-            <span v-if="level < 3" class="info__hint">→ {{ SHOPS[level + 1].icon }} 升级费 ¥{{ upgradeCost(tile) }}</span>
+            <ComicIcon v-if="SHOPS[level].icon" :name="SHOPS[level].icon" :size="15" /> {{ SHOPS[level].name }}
+            <span v-if="level < 3" class="info__hint">→ <ComicIcon :name="SHOPS[level + 1].icon" :size="13" /> 升级费 ¥{{ upgradeCost(tile) }}</span>
           </span>
         </div>
       </template>
@@ -159,9 +160,9 @@ const canUpgrade = computed(() => {
         </div>
         <div class="info__row">
           <span class="info__label">状态</span>
-          <span class="info__val">{{ bridgeInfo.closed ? '🚧 封桥中' : '通行中' }}</span>
+          <span class="info__val">{{ bridgeInfo.closed ? '封桥中' : '通行中' }}<ComicIcon v-if="bridgeInfo.closed" name="closed" :size="14" /></span>
         </div>
-        <p class="info__tip">🌊 过江唯一通道：未在桥格跨江会被江水拦住，点数作废</p>
+        <p class="info__tip"><ComicIcon name="wave" :size="13" /> 过江唯一通道：未在桥格跨江会被江水拦住，点数作废</p>
       </template>
 
       <!-- 轻轨 -->
@@ -174,16 +175,16 @@ const canUpgrade = computed(() => {
           <span class="info__label">使用费</span>
           <span class="info__val">¥{{ tile.rent }}（他人使用支付）</span>
         </div>
-        <p v-if="metroInfo.upgradable" class="info__tip">📍 李子坝 = 轻轨站 + 地标地产，可开店升级</p>
+        <p v-if="metroInfo.upgradable" class="info__tip"><ComicIcon name="metro" :size="13" /> 李子坝 = 轻轨站 + 地标地产，可开店升级</p>
       </template>
 
       <!-- 事件 / 起点 -->
-      <p v-if="eventDesc" class="info__tip">🎲 {{ eventDesc }}</p>
-      <p v-if="tile.type === 'start'" class="info__tip">🏁 每绕城一圈经过解放碑，领取工资 ¥300</p>
+      <p v-if="eventDesc" class="info__tip"><ComicIcon name="dice" :size="13" /> {{ eventDesc }}</p>
+      <p v-if="tile.type === 'start'" class="info__tip"><ComicIcon name="flag" :size="13" /> 每绕城一圈经过解放碑，领取工资 ¥300</p>
 
       <div class="info__btns">
         <button v-if="canUpgrade" class="btn-comic btn-comic--sm" @click="emit('upgrade', tile.id)">
-          🏗 升级（¥{{ upgradeCost(tile) }}）
+          <ComicIcon name="hammer" :size="15" /> 升级（¥{{ upgradeCost(tile) }}）
         </button>
         <button class="btn-comic btn-comic--sm btn-comic--ghost" @click="emit('close')">关闭</button>
       </div>

@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import ComicIcon from './ComicIcon.vue'
 import { TILES, GROUPS, SHOPS, isBridge, isMetro, isPropertyTile, upgradeCost, groupTiles } from '../game/index.js'
 
 const props = defineProps({
@@ -10,15 +11,10 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'useCard', 'useItem', 'upgrade', 'info'])
 
-const title = computed(() => {
-  switch (props.mode) {
-    case 'cards': return '🎴 我的手牌'
-    case 'items': return '📦 我的道具'
-    case 'lands': return '🏠 我的地产'
-    case 'other': return '🧭 其它'
-    default: return ''
-  }
-})
+const titles = { cards: '我的手牌', items: '我的道具', lands: '我的地产', other: '其它' }
+const titleIcons = { cards: 'card', items: 'box', lands: 'home', other: 'more' }
+const title = computed(() => titles[props.mode] ?? '')
+const titleIcon = computed(() => titleIcons[props.mode] ?? 'more')
 
 // 地产列表（含商圈/店铺信息）
 const lands = computed(() => {
@@ -46,7 +42,7 @@ const lands = computed(() => {
   <div class="overlay-layer" @click.self="emit('close')">
     <div class="card-comic card-comic--pad-lg modal">
       <div class="modal__head">
-        <h3 class="comic-title comic-title--md">{{ title }}</h3>
+        <h3 class="comic-title comic-title--md"><ComicIcon :name="titleIcon" :size="20" /> {{ title }}</h3>
         <button class="modal__close" @click="emit('close')" aria-label="关闭">✕</button>
       </div>
 
@@ -61,7 +57,7 @@ const lands = computed(() => {
             :title="c.desc"
             @click="emit('useCard', c)"
           >
-            <span class="cell__icon">{{ c.icon }}</span>
+            <span class="cell__icon"><ComicIcon :name="c.icon" :size="26" /></span>
             <span class="cell__name">{{ c.name }}</span>
             <span class="cell__desc">{{ c.desc }}</span>
           </button>
@@ -81,7 +77,7 @@ const lands = computed(() => {
             :title="it.desc"
             @click="emit('useItem', it)"
           >
-            <span class="cell__icon">{{ it.icon }}</span>
+            <span class="cell__icon"><ComicIcon :name="it.icon" :size="26" /></span>
             <span class="cell__name">{{ it.name }}</span>
             <span class="cell__desc">{{ it.desc }}</span>
           </button>
@@ -96,7 +92,7 @@ const lands = computed(() => {
           <button v-for="l in lands" :key="l.id" class="land-row" @click="emit('info', l.id)">
             <span class="land-row__name">{{ l.name }}</span>
             <b v-if="l.tag" class="tag-comic tag-comic--blue">{{ l.tag }}</b>
-            <span class="land-row__shop">{{ l.shop.icon }} {{ l.shop.name }}<em v-if="l.lv">·{{ l.lv }}级</em></span>
+            <span class="land-row__shop"><ComicIcon v-if="l.shop.icon" :name="l.shop.icon" :size="15" /> {{ l.shop.name }}<em v-if="l.lv">·{{ l.lv }}级</em></span>
             <span v-if="l.group" class="land-row__group">{{ l.group.name }} {{ l.group.n }}/{{ l.group.total }}</span>
             <span class="land-row__go">详情›</span>
           </button>
@@ -106,7 +102,7 @@ const lands = computed(() => {
 
       <!-- 其它（预留） -->
       <div v-else class="modal__body">
-        <p class="empty">更多玩法建设中，敬请期待 🚧</p>
+        <p class="empty"><ComicIcon name="more" :size="16" /> 更多玩法建设中，敬请期待</p>
         <p class="hint">这里会放以后新增的玩法入口（神仙/彩票/股票…）</p>
       </div>
 

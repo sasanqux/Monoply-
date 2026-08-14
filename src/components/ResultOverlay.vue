@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import ComicIcon from './ComicIcon.vue'
 import { totalAssets } from '../game/index.js'
 
 const props = defineProps({
@@ -21,7 +22,7 @@ const winner = computed(() => props.state.players.find((p) => p.id === props.sta
     <div class="card-comic card-comic--pad-lg result">
       <h2 class="comic-title comic-title--xl"><span class="comic-stripe">游戏结束</span></h2>
       <p class="result__winner">
-        🏆 <b>{{ winner?.name }}</b> 获胜！
+        <ComicIcon name="trophy" :size="26" /> <b>{{ winner?.name }}</b> 获胜！
       </p>
       <p class="result__reason">
         {{ state.settings.maxTurns ? `第 ${state.round} 回合触发回合上限，按总资产结算` : '其他玩家全部破产，成为最后赢家' }}

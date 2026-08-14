@@ -1,14 +1,16 @@
 <script setup>
+import ComicIcon from './ComicIcon.vue'
+
 const props = defineProps({
   me: Object,
 })
 const emit = defineEmits(['open'])
 
 const entries = [
-  { mode: 'cards', label: '卡牌', icon: '🎴', count: () => props.me?.hand?.length ?? 0 },
-  { mode: 'items', label: '道具', icon: '📦', count: () => props.me?.items?.length ?? 0 },
-  { mode: 'lands', label: '地产', icon: '🏠', count: () => props.me?.properties?.length ?? 0 },
-  { mode: 'other', label: '其它', icon: '🧭', count: () => 0 },
+  { mode: 'cards', label: '卡牌', icon: 'card', count: () => props.me?.hand?.length ?? 0 },
+  { mode: 'items', label: '道具', icon: 'box', count: () => props.me?.items?.length ?? 0 },
+  { mode: 'lands', label: '地产', icon: 'home', count: () => props.me?.properties?.length ?? 0 },
+  { mode: 'other', label: '其它', icon: 'more', count: () => 0 },
 ]
 </script>
 
@@ -20,7 +22,7 @@ const entries = [
       class="btn-comic btn-comic--sm bags__btn"
       @click="emit('open', e.mode)"
     >
-      {{ e.icon }} {{ e.label }} <b class="bags__cnt">{{ e.count() }}</b>
+      <ComicIcon :name="e.icon" :size="18" /> {{ e.label }} <b class="bags__cnt">{{ e.count() }}</b>
     </button>
   </div>
 </template>

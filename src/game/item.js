@@ -4,11 +4,11 @@ import { addMoney } from './bank.js'
 import { checkBankrupt } from './gameOver.js'
 
 export const ITEMS = [
-  { type: 'barrier', name: '路障', desc: '挡停踩中的玩家', icon: '🚧' },
-  { type: 'mine', name: '地雷', desc: '炸伤踩中的玩家', icon: '💣' },
-  { type: 'bomb', name: '定时炸弹', desc: '3 回合后爆炸', icon: '🧨' },
-  { type: 'remoteDice', name: '遥控骰子', desc: '指定下次掷骰点数', icon: '🎲' },
-  { type: 'portal', name: '传送门', desc: '传送到任意格', icon: '🌀' },
+  { type: 'barrier', name: '路障', desc: '挡停踩中的玩家', icon: 'barrier' },
+  { type: 'mine', name: '地雷', desc: '炸伤踩中的玩家', icon: 'mine' },
+  { type: 'bomb', name: '定时炸弹', desc: '3 回合后爆炸', icon: 'bomb' },
+  { type: 'remoteDice', name: '遥控骰子', desc: '指定下次掷骰点数', icon: 'dice' },
+  { type: 'portal', name: '传送门', desc: '传送到任意格', icon: 'portal' },
 ]
 
 export const BOMB_FUSE = 3

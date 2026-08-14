@@ -4,20 +4,20 @@ import { payMoney } from './bank.js'
 import { alivePlayers } from './gameOver.js'
 
 export const CARDS = [
-  { type: 'buy', name: '购地卡', desc: '强买一块无主地产', icon: '🏷️' },
-  { type: 'swap', name: '换地卡', desc: '与对方交换一块地', icon: '🔁' },
-  { type: 'equalize', name: '均富卡', desc: '全场现金平分', icon: '⚖️' },
-  { type: 'steal', name: '抢夺卡', desc: '抢对方一张手牌', icon: '👊' },
-  { type: 'demolish', name: '拆除卡', desc: '拆对方一栋楼', icon: '🔨' },
-  { type: 'frame', name: '陷害卡', desc: '送对手进监狱', icon: '⛓️' },
-  { type: 'shield', name: '免罪卡', desc: '免一次税/过桥费', icon: '🛡️' },
-  { type: 'reverse', name: '转向卡', desc: '本次移动反向走', icon: '↩️' },
-  { type: 'hold', name: '停留卡', desc: '让对手停一轮', icon: '✋' },
-  { type: 'transfer', name: '嫁祸卡', desc: '把监狱转给别人', icon: '🎭' },
-  { type: 'monster', name: '怪兽卡', desc: '拆平对手的楼', icon: '👾' },
-  { type: 'nuke', name: '核弹卡', desc: '炸平一块地产', icon: '☢️' },
-  { type: 'ferry', name: '轮渡卡', desc: '免费过江一次', icon: '⛵' },
-  { type: 'closeBridge', name: '封桥卡', desc: '封一座桥两回合', icon: '🚧' },
+  { type: 'buy', name: '购地卡', desc: '强买一块无主地产', icon: 'tag' },
+  { type: 'swap', name: '换地卡', desc: '与对方交换一块地', icon: 'swap' },
+  { type: 'equalize', name: '均富卡', desc: '全场现金平分', icon: 'equalize' },
+  { type: 'steal', name: '抢夺卡', desc: '抢对方一张手牌', icon: 'steal' },
+  { type: 'demolish', name: '拆除卡', desc: '拆对方一栋楼', icon: 'demolish' },
+  { type: 'frame', name: '陷害卡', desc: '送对手进监狱', icon: 'frame' },
+  { type: 'shield', name: '免罪卡', desc: '免一次税/过桥费', icon: 'shield' },
+  { type: 'reverse', name: '转向卡', desc: '本次移动反向走', icon: 'reverse' },
+  { type: 'hold', name: '停留卡', desc: '让对手停一轮', icon: 'hold' },
+  { type: 'transfer', name: '嫁祸卡', desc: '把监狱转给别人', icon: 'transfer' },
+  { type: 'monster', name: '怪兽卡', desc: '拆平对手的楼', icon: 'monster' },
+  { type: 'nuke', name: '核弹卡', desc: '炸平一块地产', icon: 'nuke' },
+  { type: 'ferry', name: '轮渡卡', desc: '免费过江一次', icon: 'ferry' },
+  { type: 'closeBridge', name: '封桥卡', desc: '封一座桥两回合', icon: 'closed' },
 ]
 
 export function randomCard() {

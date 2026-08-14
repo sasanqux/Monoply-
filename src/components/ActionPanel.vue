@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import ComicIcon from './ComicIcon.vue'
 import { TILES, VEHICLES, isMetro } from '../game/index.js'
 
 const props = defineProps({
@@ -25,12 +26,12 @@ const statusText = computed(() => {
   const cur = props.current
   if (!cur) return ''
   if (cur.bankrupt) return `${cur.name} 已破产`
-  if (cur.jailLeft > 0) return `⛓️ ${cur.name} 在拘留所（剩 ${cur.jailLeft} 轮）`
-  if (cur.skipTurns > 0) return `✋ ${cur.name} 被定住`
-  if (cur.hospital) return `🏥 ${cur.name} 在医院休养`
-  if (!props.isMyTurn) return `🤖 ${cur.name} 思考中…`
-  if (props.state.phase === 'roll') return `🎲 轮到你掷骰（${VEHICLES[cur.vehicle].name} ${VEHICLES[cur.vehicle].dice} 颗）`
-  if (metroPending.value) return `🚈 轻轨站：可以乘轻轨去其他站`
+  if (cur.jailLeft > 0) return `${cur.name} 在拘留所（剩 ${cur.jailLeft} 轮）`
+  if (cur.skipTurns > 0) return `${cur.name} 被定住`
+  if (cur.hospital) return `${cur.name} 在医院休养`
+  if (!props.isMyTurn) return `${cur.name} 思考中…`
+  if (props.state.phase === 'roll') return `轮到你掷骰（${VEHICLES[cur.vehicle].name} ${VEHICLES[cur.vehicle].dice} 颗）`
+  if (metroPending.value) return `轻轨站：可以乘轻轨去其他站`
   if (pendingTile.value) return `「${pendingTile.value.name}」${pendingTile.value.type === 'bridge' ? '（桥）' : ''}待购买`
   return `轮到你行动`
 })
@@ -42,7 +43,7 @@ const statusText = computed(() => {
       <p class="actions__status" :class="{ 'actions__status--mine': isMyTurn }">{{ statusText }}</p>
       <p class="actions__meta">
         <span>第 {{ state.round }} 回合</span>
-        <span class="actions__dice">🎲 {{ state.dice ? state.dice.join(' + ') : '—' }}</span>
+        <span class="actions__dice"><ComicIcon name="dice" :size="14" /> {{ state.dice ? state.dice.join(' + ') : '—' }}</span>
       </p>
     </div>
 
@@ -63,7 +64,7 @@ const statusText = computed(() => {
           <button class="btn-comic btn-comic--ghost" @click="emit('dispatch', { type: 'SKIP_BUY' })">放弃</button>
         </template>
         <button v-if="metroPending" class="btn-comic btn-comic--blue" @click="emit('metro')">
-          🚈 乘轻轨 ¥150
+          <ComicIcon name="metro" :size="17" /> 乘轻轨 ¥150
         </button>
         <button class="btn-comic btn-comic--yellow" @click="emit('dispatch', { type: 'END_TURN' })">结束回合</button>
       </template>
