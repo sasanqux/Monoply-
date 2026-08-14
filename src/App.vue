@@ -443,7 +443,7 @@ const selectHint = computed(() => {
 
       <!-- 分岔路口选路弹窗（人类玩家暂停等待选方向） -->
       <div
-        v-if="state.phase === 'fork' && state.pending?.kind === 'fork' && !animating && isMyTurn"
+        v-if="state.phase === 'fork' && state.pending?.kind === 'fork' && !animating && !diceThrowing && isMyTurn"
         class="overlay-layer"
       >
         <div class="card-comic card-comic--pad-lg fork-pop">

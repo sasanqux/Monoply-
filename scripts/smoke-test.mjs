@@ -89,10 +89,16 @@ console.log('▶ 分岔路口：人类暂停 / AI 自动选路')
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   const a = s.players[0]
-  a.pos = 1 // 朝天门，forks=[50,49], next=2
+  a.pos = 1 // 朝天门，forks=[50,49], next=2(弹子石=外圈直行)
+  // 起步：从朝天门第一次出发直行走弹子石(外圈)，不弹分岔窗
+  const r0 = movePlayer(s, a, 1, null, 1)
+  check('朝天门起步直行走弹子石(外圈)，不暂停', r0.paused === false && a.pos === 2 && a.startDepart === false)
+  // 绕回：已出发后再次到朝天门，分岔只给洪崖洞/解放碑（不含弹子石直行）
+  a.pos = 1
+  a.startDepart = false
   const r = movePlayer(s, a, 1, null, 1) // 人类 chooser=null → 暂停
-  check('人类在分岔格暂停', r.paused === true)
-  check('pending 记录分岔选项(含洪崖洞/解放碑)', s.pending?.kind === 'fork' && s.pending.options.includes(50) && s.pending.options.includes(49))
+  check('人类绕回朝天门分岔暂停', r.paused === true)
+  check('朝天门分岔选项仅洪崖洞/解放碑(不含弹子石)', s.pending?.kind === 'fork' && s.pending.options.includes(50) && s.pending.options.includes(49) && !s.pending.options.includes(2))
   // AI 自动选路：走 tile.next
   const s2 = makeState([
     { id: 'p1', name: 'A', isAI: true },

@@ -56,6 +56,7 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
       alive: true,
       bankrupt: false,
       walkPath: [1],
+      startDepart: true, // 从朝天门(id1)出发的第一次移动：直行走弹子石(外圈)，不触发分岔窗
     })),
     log: [
       `🎮 重庆大富翁！${players.map((p) => p.name).join('、')}，每人起始资金 ¥${startMoney}`,
