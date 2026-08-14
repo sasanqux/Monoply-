@@ -67,6 +67,10 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
 export function gameReducer(state, action) {
   const s = structuredClone(state)
   if (s.status !== 'playing') return s
+  // 兼容旧版本对局状态（HMR/热更新后旧 state 缺新字段）：补齐默认值，防止崩溃
+  s.announcedGroups ??= {}
+  s.closedBridges ??= {}
+  s.boardItems ??= []
   const p = currentPlayer(s)
   let result = s
 
