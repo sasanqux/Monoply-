@@ -22,9 +22,10 @@ watch(
   (dice) => {
     if (!dice) return
     diceFx.value = { dice: [...dice], id: ++diceSeq }
+    // 骰子动画总时长约 3s（下落→弹跳→停留展示→淡出），让玩家看清点数
     setTimeout(() => {
       if (diceFx.value?.id === diceSeq) diceFx.value = null
-    }, 1900)
+    }, 3000)
   }
 )
 
@@ -57,16 +58,19 @@ watch(
       }
       walkers.value.push(wobj)
       syncWalking()
-      // 逐格走动：每格 0.2s（通过响应式数组取代理对象修改 seg，触发重渲染）
-      const stepMs = 200
+      // 逐格走动：每格 0.32s（通过响应式数组取代理对象修改 seg，触发重渲染）
+      // 走完后再停留 0.4s 展示落点，然后移除动画棋子
+      const stepMs = 320
       const timer = setInterval(() => {
         const w = walkers.value.find((x) => x.key === key)
         if (!w) { clearInterval(timer); return }
         w.seg += 1
         if (w.seg >= w.path.length) {
           clearInterval(timer)
-          walkers.value = walkers.value.filter((x) => x.key !== key)
-          syncWalking()
+          setTimeout(() => {
+            walkers.value = walkers.value.filter((x) => x.key !== key)
+            syncWalking()
+          }, 400)
         }
       }, stepMs)
     }
@@ -123,7 +127,7 @@ watch(
     if (/KABOOM|BOOM|ROAR/.test(hit.word)) emit('boom')
     setTimeout(() => {
       words.value = words.value.filter((w) => w.id !== id)
-    }, 1100)
+    }, 1500)
   }
 )
 </script>
@@ -177,21 +181,21 @@ watch(
 .fx__dice-wrap {
   position: absolute;
   left: 50%;
-  top: 34%;
+  top: 30%;
   transform: translate(-50%, -50%);
   display: flex;
-  gap: 18px;
+  gap: 22px;
   z-index: 25;
 }
 
 .fx__dice {
   position: relative;
-  width: 66px;
-  height: 66px;
+  width: 76px;
+  height: 76px;
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: dice-drop 0.7s cubic-bezier(0.3, 1.6, 0.5, 1) both, dice-land 0.6s 0.7s ease both, dice-fade 0.35s 1.5s ease both;
+  animation: dice-drop 0.9s cubic-bezier(0.3, 1.6, 0.5, 1) both, dice-land 1.1s 0.9s ease both, dice-fade 0.45s 2.5s ease both;
 }
 
 .fx__dice-num {
@@ -199,7 +203,7 @@ watch(
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 26px;
+  font-size: 30px;
   font-weight: 900;
   color: var(--ink);
   z-index: 2;
@@ -233,9 +237,9 @@ watch(
   box-shadow: 2px 2px 0 0 rgba(26, 26, 26, 0.75);
   transform: translate(-50%, -50%);
   z-index: 24;
-  /* 每格 0.2s 平滑滑动 + 落地小弹跳 */
-  transition: left 0.2s ease, top 0.2s ease;
-  animation: walker-hop 0.4s ease infinite alternate;
+  /* 每格 0.32s 平滑滑动 + 落地小弹跳 */
+  transition: left 0.32s ease, top 0.32s ease;
+  animation: walker-hop 0.5s ease infinite alternate;
 }
 
 .fx__walker-veh {
@@ -248,5 +252,32 @@ watch(
 @keyframes walker-hop {
   from { margin-top: 0; }
   to { margin-top: -5px; }
+}
+
+/* ===== 拟声词 ===== */
+.fx__word {
+  position: absolute;
+  transform-origin: center;
+  font-size: clamp(28px, 6cqw, 56px);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  font-style: italic;
+  color: var(--wcolor);
+  -webkit-text-stroke: 2.5px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 4px 4px 0 rgba(26, 26, 26, 0.85);
+  animation: word-pop 1.45s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  z-index: 26;
+  white-space: nowrap;
+}
+
+@keyframes word-pop {
+  0% { transform: scale(0.2) rotate(0deg); opacity: 0; }
+  16% { transform: scale(1.4); opacity: 1; }
+  30% { transform: scale(0.95); }
+  42% { transform: scale(1.15); }
+  55% { transform: scale(1); opacity: 1; }
+  82% { transform: scale(1.03) translateY(-8px); opacity: 1; }
+  100% { transform: scale(0.88) translateY(-30px); opacity: 0; }
 }
 </style>

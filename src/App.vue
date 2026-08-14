@@ -16,7 +16,9 @@ const AI_NAMES = ['阿蓝', '阿绿', '阿橙', '阿紫', '阿粉', '阿灰', '�
 const state = ref(null)
 const lastOpts = ref(null)
 const lastMove = ref(null) // { prevPos, nextPos } 供棋子飞行特效
+const animating = ref(false) // 掷骰/走格动画播放中（期间暂不显示操作按钮，让玩家看清）
 let aiTimer = null
+let animTimer = null
 
 // 卡牌/道具目标选择模式
 const selecting = ref(null) // { type:'card'|'item', id, mode:'tile'|'player'|'swap', swapStep, myTile }
@@ -28,6 +30,8 @@ const myModal = ref(null) // 底部入口弹窗：'cards' | 'items' | 'lands' | 
 function startGame(opts) {
   lastOpts.value = { ...opts }
   lastMove.value = null
+  animating.value = false
+  clearTimeout(animTimer)
   const players = []
   for (let i = 0; i < opts.players; i++) {
     players.push({ id: 'p' + (i + 1), name: i === 0 ? '我' : AI_NAMES[i - 1], isAI: i !== 0 })
@@ -57,6 +61,13 @@ function dispatch(action) {
     paths,
     n: (lastMove.value?.n ?? 0) + 1,
   }
+  // 有走格动画时，动画期间锁住操作按钮（骰子 3s + 走格 0.32s/格 + 落地 0.4s）
+  if (paths.length) {
+    animating.value = true
+    const animMs = Math.max(...paths.map((p) => p.path.length)) * 320 + 400 + 3000
+    clearTimeout(animTimer)
+    animTimer = setTimeout(() => { animating.value = false }, animMs)
+  }
   scheduleAI()
 }
 
@@ -65,11 +76,11 @@ function scheduleAI() {
   if (!st || st.status !== 'playing') return
   const cur = currentPlayer(st)
   if (!cur.isAI) return
-  // AI 行动延迟 = 基础延迟 + 走格动画时长（让玩家看清棋子走动）
+  // AI 行动延迟 = 基础延迟 + 走格动画时长（0.32s/格 + 落地停留 0.4s，让玩家看清棋子走动）
   const walkTime = lastMove.value?.paths?.length
-    ? Math.max(...lastMove.value.paths.map((p) => p.path.length)) * 200
+    ? Math.max(...lastMove.value.paths.map((p) => p.path.length)) * 320 + 400
     : 0
-  const delay = (st.phase === 'roll' ? 900 : 400) + walkTime
+  const delay = (st.phase === 'roll' ? 1200 : 600) + walkTime
   clearTimeout(aiTimer)
   aiTimer = setTimeout(() => {
     const action = aiDecide(state.value, cur.id)
@@ -267,7 +278,7 @@ const selectHint = computed(() => {
               @tile-info="openTileInfo"
             />
           </div>
-          <ActionPanel :state="state" :current="cur" :is-my-turn="isMyTurn" @dispatch="dispatch" @metro="startMetro" />
+          <ActionPanel :state="state" :current="cur" :is-my-turn="isMyTurn" :animating="animating" @dispatch="dispatch" @metro="startMetro" />
         </main>
 
         <SidePanel :state="state" :current="cur" :selectable-players="selectablePlayers" @player-click="onPlayerClick" />

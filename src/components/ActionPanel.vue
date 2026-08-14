@@ -7,6 +7,7 @@ const props = defineProps({
   state: Object,
   current: Object,
   isMyTurn: Boolean,
+  animating: Boolean, // 掷骰/走格动画播放中，禁用操作按钮
 })
 const emit = defineEmits(['dispatch', 'metro'])
 
@@ -25,6 +26,7 @@ const statusText = computed(() => {
   if (props.state.status !== 'playing') return ''
   const cur = props.current
   if (!cur) return ''
+  if (props.animating) return `🎲 ${cur.name} 掷骰中…`
   if (cur.bankrupt) return `${cur.name} 已破产`
   if (cur.jailLeft > 0) return `${cur.name} 在拘留所（剩 ${cur.jailLeft} 轮）`
   if (cur.skipTurns > 0) return `${cur.name} 被定住`
@@ -51,6 +53,7 @@ const statusText = computed(() => {
       <button
         v-if="state.phase === 'roll'"
         class="btn-comic"
+        :disabled="animating"
         @click="emit('dispatch', { type: 'ROLL_DICE' })"
       >
         掷骰子
@@ -58,15 +61,15 @@ const statusText = computed(() => {
 
       <template v-else-if="state.phase === 'landed'">
         <template v-if="pendingTile">
-          <button class="btn-comic" :disabled="!canBuy" @click="emit('dispatch', { type: 'BUY_PROPERTY' })">
+          <button class="btn-comic" :disabled="!canBuy || animating" @click="emit('dispatch', { type: 'BUY_PROPERTY' })">
             购买 ¥{{ pendingTile.price }}
           </button>
-          <button class="btn-comic btn-comic--ghost" @click="emit('dispatch', { type: 'SKIP_BUY' })">放弃</button>
+          <button class="btn-comic btn-comic--ghost" :disabled="animating" @click="emit('dispatch', { type: 'SKIP_BUY' })">放弃</button>
         </template>
-        <button v-if="metroPending" class="btn-comic btn-comic--blue" @click="emit('metro')">
+        <button v-if="metroPending" class="btn-comic btn-comic--blue" :disabled="animating" @click="emit('metro')">
           <ComicIcon name="metro" :size="17" /> 乘轻轨 ¥150
         </button>
-        <button class="btn-comic btn-comic--yellow" @click="emit('dispatch', { type: 'END_TURN' })">结束回合</button>
+        <button class="btn-comic btn-comic--yellow" :disabled="animating" @click="emit('dispatch', { type: 'END_TURN' })">结束回合</button>
       </template>
     </div>
 
