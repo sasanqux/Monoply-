@@ -324,6 +324,24 @@ console.log('▶ AI 会用卡/道具/乘轻轨')
   check('AI 无适用操作 → 结束回合', a6?.type === 'END_TURN')
 }
 
+console.log('▶ reducer 能处理 Proxy（浏览器真实场景）')
+{
+  // 浏览器里 state.value 是 Vue reactive proxy，structuredClone 不能克隆 Proxy 会抛 DataCloneError
+  // 修复后用 JSON 深拷贝，必须能处理 Proxy
+  const proxy = new Proxy(createInitialState({ players: [{ id: 'p1', name: 'A', isAI: false }], maxTurns: 40, startMoney: 5000 }), {
+    get(t, k) { return Reflect.get(t, k) },
+    ownKeys(t) { return Reflect.ownKeys(t) },
+  })
+  let didThrow = false
+  try {
+    const s = gameReducer(proxy, { type: 'ROLL_DICE' })
+    check('Reducer 不崩', !!s)
+    check('掷骰后 phase=landed', s.phase === 'landed')
+  } catch (e) { didThrow = true }
+  check('不抛 DataCloneError', !didThrow)
+}
+
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`)
 if (fail > 0) process.exit(1)
 console.log('SMOKE OK')
+

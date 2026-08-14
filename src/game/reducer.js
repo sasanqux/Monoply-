@@ -65,7 +65,9 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
 }
 
 export function gameReducer(state, action) {
-  const s = structuredClone(state)
+  // 注意：浏览器里 state 是 Vue 响应式 Proxy，structuredClone 无法克隆 Proxy 会抛 DataCloneError
+  // 用 JSON 深拷贝（state 全是普通对象/数组/数字，无 Date/Map/函数，JSON 安全且兼容 Proxy）
+  const s = JSON.parse(JSON.stringify(state))
   if (s.status !== 'playing') return s
   // 兼容旧版本对局状态（HMR/热更新后旧 state 缺新字段）：补齐默认值，防止崩溃
   s.announcedGroups ??= {}
