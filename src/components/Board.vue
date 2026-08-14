@@ -70,13 +70,25 @@ function isFork(t) {
   return !!(t.forks && t.forks.length)
 }
 
-// 按名字长度自适应字号：保证长地名完整显示
+// 格子像素尺寸：网格 10 列 × 9 行，单格占 9.4%×10.6%（留极细缝防边框重叠）；
+// 大块（大渡口/北碚 w=2、朝天门 h=3）按 w/h 倍率撑开，做到无缝拼接
+function tileSize(t) {
+  const BASE_W = 9.4
+  const BASE_H = 10.6
+  return {
+    w: (BASE_W * (t.w || 1)).toFixed(2) + '%',
+    h: (BASE_H * (t.h || 1)).toFixed(2) + '%',
+  }
+}
+
+// 按名字长度自适应字号：直接用 cqw（=棋盘宽的 1%），与格子尺寸同一参考系，
+// 不使用 px 封顶/保底，保证缩放时字与格子永远同比例（不再脱钩）
 function nameFont(name) {
   const len = name.length
-  if (len <= 3) return 'clamp(9.5px, 1.35cqw, 17px)'
-  if (len === 4) return 'clamp(9px, 1.2cqw, 15px)'
-  if (len === 5) return 'clamp(8.5px, 1.05cqw, 13px)'
-  return 'clamp(8px, 0.85cqw, 12px)' // 6 字及以上
+  if (len <= 3) return '1.55cqw'
+  if (len === 4) return '1.35cqw'
+  if (len === 5) return '1.18cqw'
+  return '1.0cqw' // 6 字及以上
 }
 
 function tileBg(t) {
@@ -174,7 +186,7 @@ function onTile(t) {
         'tile--bank': isRiverBank(t),
         'tile--fork': isFork(t),
       }"
-      :style="{ left: posOf(t.id).x + '%', top: posOf(t.id).y + '%', background: tileBg(t), color: tileFg(t) }"
+      :style="{ left: posOf(t.id).x + '%', top: posOf(t.id).y + '%', width: tileSize(t).w, height: tileSize(t).h, background: tileBg(t), color: tileFg(t) }"
       :title="t.name + (t.sub ? ' · ' + t.sub : '') + (ownerOf(t.id) ? ' · 拥有者 ' + ownerOf(t.id).name : '')"
       @click="onTile(t)"
     >
@@ -182,6 +194,7 @@ function onTile(t) {
       <span v-if="isFork(t)" class="tile__fork" title="分岔路口：可自选路线">分</span>
       <span v-if="isRiverBank(t)" class="tile__bank-mark"><ComicIcon name="wave" :size="13" /></span>
       <span class="tile__name" :style="{ fontSize: nameFont(t.name) }">{{ t.name }}</span>
+      <span v-if="isPropertyTile(t) && t.price" class="tile__price">¥{{ t.price }}</span>
 
       <span v-if="isClosed(t.id)" class="tile__closed"><ComicIcon name="closed" :size="16" /></span>
 
@@ -217,9 +230,10 @@ function onTile(t) {
 <style scoped>
 .board {
   position: relative;
-  /* 宽高比固定 100:85；max-width 限幅保证棋盘+操作面板+骰子在首屏内 */
-  width: 100%;
-  max-width: 70.6vh;
+  /* 固定像素宽度：Chrome Ctrl+/- 缩放时，固定 px 会和文字一起正常缩放；
+     而 100%/vw/vh 这类"占满视口"的尺寸缩放时不会变小，会和文字脱钩。
+     代价：宽屏两侧有留白——觉得小就 Ctrl+ 放大（放大缩小都同步）。 */
+  width: 1000px;
   margin: 0 auto;
   aspect-ratio: 100 / 85;
   container-type: inline-size;
@@ -241,22 +255,18 @@ function onTile(t) {
 .tile {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 5.9%;
-  height: 3.6%;
-  min-width: 62px;
-  min-height: 32px;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  border: 2px solid var(--ink);
-  border-radius: 6px;
-  padding: 1px 3px;
+  gap: 1px;
+  border: 3.5px solid var(--ink);
+  border-radius: 7px;
+  padding: 2px 3px;
   user-select: none;
   cursor: default;
   text-align: center;
-  box-shadow: 2px 2px 0 0 rgba(26, 26, 26, 0.85);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.55), 3px 3px 0 0 rgba(26, 26, 26, 0.9);
   z-index: 2;
 }
 
@@ -269,20 +279,20 @@ function onTile(t) {
   position: absolute;
   top: -7px;
   left: -5px;
-  font-size: clamp(9px, 1.1cqw, 15px);
+  font-size: 1.1cqw;
   line-height: 1;
 }
 
 /* 分岔路口标记：金色"分"角标 + 外发光，提示玩家可自选路线 */
 .tile--fork {
-  box-shadow: 0 0 0 2px #f59e0b, 2px 2px 0 0 rgba(26, 26, 26, 0.85);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.55), 0 0 0 3.5px #f59e0b, 3px 3px 0 0 rgba(26, 26, 26, 0.9);
 }
 
 .tile__fork {
   position: absolute;
   top: -7px;
   right: -6px;
-  font-size: clamp(8px, 0.95cqw, 12px);
+  font-size: 1.0cqw;
   font-weight: 900;
   line-height: 1;
   width: 1.5em;
@@ -301,10 +311,11 @@ function onTile(t) {
   position: absolute;
   top: 1px;
   left: 3px;
-  font-size: clamp(7px, 0.8cqw, 11px);
+  font-size: 0.95cqw;
   font-weight: 900;
-  opacity: 0.75;
+  opacity: 0.8;
   line-height: 1;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
 .tile--sel {
@@ -351,37 +362,56 @@ function onTile(t) {
 
 .tile__name {
   font-weight: 900;
-  line-height: 1.1;
+  line-height: 1.05;
   flex: 1;
   min-width: 0;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-align: center;
 }
 
 .tile__closed {
   position: absolute;
   top: -5px;
   right: -5px;
-  font-size: clamp(10px, 1.3cqw, 16px);
+  font-size: 1.3cqw;
 }
 
 .tile__shop {
   position: absolute;
   top: 0px;
   left: 2px;
-  font-size: clamp(8px, 0.9cqw, 12px);
+  font-size: 0.9cqw;
   line-height: 1;
 }
 
 .tile__owner {
   position: absolute;
-  bottom: 0px;
+  bottom: 2px;
   right: 2px;
-  width: clamp(3.5px, 0.4cqw, 6px);
-  height: clamp(3.5px, 0.4cqw, 6px);
+  width: 0.7cqw;
+  height: 0.7cqw;
   border-radius: 50%;
-  border: 1px solid var(--ink);
+  border: 1.5px solid #fff;
+  box-shadow: 0 0 0 1px var(--ink);
+}
+
+.tile__price {
+  position: absolute;
+  bottom: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.85cqw;
+  font-weight: 900;
+  line-height: 1;
+  background: rgba(26, 26, 26, 0.62);
+  color: #fff;
+  padding: 1px 4px;
+  border-radius: 5px;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .tile__items {
@@ -390,7 +420,7 @@ function onTile(t) {
   left: 2px;
   display: flex;
   gap: 1px;
-  font-size: clamp(8px, 0.9cqw, 12px);
+  font-size: 0.9cqw;
 }
 
 .tile__pawns {
@@ -405,8 +435,8 @@ function onTile(t) {
 
 .pawn {
   position: relative;
-  width: clamp(6px, 0.75cqw, 10px);
-  height: clamp(6px, 0.75cqw, 10px);
+  width: 0.75cqw;
+  height: 0.75cqw;
   border-radius: 50%;
   border: 1.5px solid var(--ink);
   box-shadow: 0.5px 0.5px 0 0 rgba(26, 26, 26, 0.7);
@@ -423,7 +453,7 @@ function onTile(t) {
   left: 50%;
   transform: translateX(-50%);
   font-style: normal;
-  font-size: clamp(7px, 0.85cqw, 11px);
+  font-size: 0.85cqw;
   line-height: 1;
 }
 
@@ -443,10 +473,4 @@ function onTile(t) {
 }
 
 /* 环中心信息面板已删除（折线地图中心不固定，会压到格子；回合/骰子在 ActionPanel 显示） */
-
-@media (max-width: 700px) {
-  .board {
-    min-width: 640px;
-  }
-}
 </style>

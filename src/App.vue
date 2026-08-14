@@ -487,7 +487,7 @@ const selectHint = computed(() => {
 
 .app__game {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 260px;
   gap: var(--space-3);
   align-items: start;
 }
