@@ -23,6 +23,7 @@ let animTimer = null
 
 // ===== 可拿取骰子 =====
 const boardEl = ref(null)          // 棋盘 DOM（DiceThrow 算落点）
+const actionPanelEl = ref(null)   // 操作面板 DOM（骰子初始位置锚点：面板右侧靠中间）
 const diceThrowing = ref(false)   // 玩家投掷动画播放中（期间 BoardFx 不播骰子动画）
 const diceRolled = ref(false)     // 本回合已投掷（防止重投）
 
@@ -357,7 +358,7 @@ const selectHint = computed(() => {
               />
             </div>
           </div>
-          <ActionPanel :state="state" :current="cur" :is-my-turn="isMyTurn" :animating="animating" @dispatch="dispatch" @metro="startMetro" />
+          <ActionPanel ref="actionPanelEl" :state="state" :current="cur" :is-my-turn="isMyTurn" :animating="animating" @dispatch="dispatch" @metro="startMetro" />
         </main>
 
         <SidePanel :state="state" :current="cur" :selectable-players="selectablePlayers" @player-click="onPlayerClick" />
@@ -401,6 +402,7 @@ const selectHint = computed(() => {
         :can-throw="canThrowDice"
         :final-dice="state.dice || undefined"
         :board-el="boardEl"
+        :anchor-el="actionPanelEl && actionPanelEl.$el"
         @throw="onDiceThrow"
         @settle="onDiceSettle"
       />

@@ -7,17 +7,18 @@ const props = defineProps({
   canThrow: Boolean,   // 当前是否可投掷
   finalDice: Array,    // 真实点数 [a, b, ...]
   boardEl: Object,     // 棋盘 DOM（算落点）
+  anchorEl: Object,    // 操作面板 DOM（初始位置锚点：面板右侧靠中间）
 })
 const emit = defineEmits(['throw', 'settle'])
 
 // ===== 骰子 3D 面布局（标准骰子：对面和=7） =====
 const FACE_TRANSFORM = {
-  1: 'rotateY(0deg) translateZ(28px)',
-  2: 'rotateX(90deg) translateZ(28px)',
-  3: 'rotateY(90deg) translateZ(28px)',
-  4: 'rotateY(-90deg) translateZ(28px)',
-  5: 'rotateX(-90deg) translateZ(28px)',
-  6: 'rotateY(180deg) translateZ(28px)',
+  1: 'rotateY(0deg) translateZ(23px)',
+  2: 'rotateX(90deg) translateZ(23px)',
+  3: 'rotateY(90deg) translateZ(23px)',
+  4: 'rotateY(-90deg) translateZ(23px)',
+  5: 'rotateX(-90deg) translateZ(23px)',
+  6: 'rotateY(180deg) translateZ(23px)',
 }
 // 点数 → 骰子整体最终旋转角（先 ry 后 rx）
 const FACE_ROT = {
@@ -29,14 +30,14 @@ const FACE_ROT = {
   6: { x: 0, y: 180 },
 }
 
-// 点数 → 圆点位置（标准 3x3 布局，56x56 面）
+// 点数 → 圆点位置（标准 3x3 布局，46x46 面）
 const DOTS = {
-  1: [[28, 28]],
-  2: [[14, 14], [42, 42]],
-  3: [[14, 14], [28, 28], [42, 42]],
-  4: [[14, 14], [42, 14], [14, 42], [42, 42]],
-  5: [[14, 14], [42, 14], [28, 28], [14, 42], [42, 42]],
-  6: [[14, 14], [42, 14], [14, 28], [42, 28], [14, 42], [42, 42]],
+  1: [[23, 23]],
+  2: [[11.5, 11.5], [34.5, 34.5]],
+  3: [[11.5, 11.5], [23, 23], [34.5, 34.5]],
+  4: [[11.5, 11.5], [34.5, 11.5], [11.5, 34.5], [34.5, 34.5]],
+  5: [[11.5, 11.5], [34.5, 11.5], [23, 23], [11.5, 34.5], [34.5, 34.5]],
+  6: [[11.5, 11.5], [34.5, 11.5], [11.5, 23], [34.5, 23], [11.5, 34.5], [34.5, 34.5]],
 }
 function dotsOf(n) {
   return DOTS[n] || DOTS[1]
@@ -54,8 +55,8 @@ function syncCubes(count) {
   for (const c of cubes) { c.x = 0; c.y = 0 }
 }
 
-const DIE = 56
-const GAP = 10
+const DIE = 46
+const GAP = 8
 function pairWidth(count) {
   return count * DIE + (count - 1) * GAP
 }
@@ -71,11 +72,20 @@ let thrown = false
 function boardRect() {
   return props.boardEl?.getBoundingClientRect?.() || null
 }
+// 初始位置：操作面板（信息窗口）右侧靠中间，跟游戏界面一体
 function homePos() {
-  const b = boardRect()
   const w = pairWidth(dieCount.value)
-  if (b) return { x: b.left + b.width / 2 - w / 2, y: b.bottom + 14 }
-  return { x: window.innerWidth / 2 - w / 2, y: window.innerHeight - 120 }
+  const a = props.anchorEl?.getBoundingClientRect?.()
+  if (a) {
+    // 面板右侧，竖直中间
+    return {
+      x: a.right - w - 10,
+      y: a.top + a.height / 2 - DIE / 2,
+    }
+  }
+  const b = boardRect()
+  if (b) return { x: b.left + b.width / 2 - w / 2, y: b.bottom + 12 }
+  return { x: window.innerWidth / 2 - w / 2, y: window.innerHeight - 110 }
 }
 
 function resetIdle() {
@@ -90,6 +100,12 @@ function resetIdle() {
 onMounted(resetIdle)
 onBeforeUnmount(() => { clearTimeout(animTimer); cancelAnimationFrame(raf) })
 watch(dieCount, resetIdle)
+// 锚点元素就绪后重新定位（首次挂载时 actionPanelEl 可能尚未赋值）
+watch(
+  () => props.anchorEl,
+  () => { if (state.value === 'idle') resetIdle() },
+  { flush: 'post' }
+)
 
 // ===== 拖拽 =====
 function onPointerDown(e) {
@@ -267,6 +283,7 @@ const dieStyles = computed(() =>
       :style="pairStyle"
       @pointerdown="onPointerDown"
     >
+      <p v-if="state === 'idle'" class="dice-throw__hint">🎯 拖到棋盘上扔出去</p>
       <div
         v-for="(f, i) in (props.finalDice?.length ? props.finalDice : [1])"
         :key="i"
@@ -274,9 +291,9 @@ const dieStyles = computed(() =>
         :style="dieStyles[i]"
       >
         <div v-for="face in 6" :key="face" class="die3d__face" :style="{ transform: FACE_TRANSFORM[face] }">
-          <svg viewBox="0 0 56 56" class="die3d__svg" aria-hidden="true">
-            <rect x="2" y="2" width="52" height="52" rx="8" fill="#fff" stroke="#1a1a1a" stroke-width="2.6" />
-            <circle v-for="(p, j) in dotsOf(face)" :key="j" :cx="p[0]" :cy="p[1]" r="6" fill="#1a1a1a" />
+          <svg viewBox="0 0 46 46" class="die3d__svg" aria-hidden="true">
+            <rect x="1.8" y="1.8" width="42.4" height="42.4" rx="7" fill="#fff" stroke="#1a1a1a" stroke-width="2.4" />
+            <circle v-for="(p, j) in dotsOf(face)" :key="j" :cx="p[0]" :cy="p[1]" r="4.8" fill="#1a1a1a" />
           </svg>
         </div>
       </div>
@@ -292,20 +309,22 @@ const dieStyles = computed(() =>
   z-index: 40;
 }
 
+/* 提示词：显示在骰子对下方（不遮挡骰子） */
 .dice-throw__hint {
-  position: fixed;
+  position: absolute;
   left: 50%;
+  bottom: -34px;
   transform: translateX(-50%);
-  bottom: 100px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 900;
   background: var(--pop-yellow);
-  border: 3px solid var(--ink);
+  border: 2.5px solid var(--ink);
   border-radius: 8px;
   box-shadow: 3px 3px 0 0 var(--ink);
-  padding: 5px 12px;
+  padding: 3px 10px;
   animation: hint-pulse 1.2s ease-in-out infinite;
   white-space: nowrap;
+  z-index: 2;
 }
 
 @keyframes hint-pulse {
@@ -332,8 +351,8 @@ const dieStyles = computed(() =>
 
 .die3d {
   position: relative;
-  width: 56px;
-  height: 56px;
+  width: 46px;
+  height: 46px;
   transform-style: preserve-3d;
   flex-shrink: 0;
 }
