@@ -9,7 +9,8 @@ export const JAIL_TURNS = 2
 export const HOSPITAL_FEE = 200
 export const WORKSHOP_FEE = 50
 export const UPGRADE_COST_RATIO = 0.5
-export const SELL_RATIO = 0.5
+// 卖地回收比例：0.4 = 只拿回 4 成（压价卖，防止无限卖地续命，让破产更有戏剧性）
+export const SELL_RATIO = 0.4
 export const METRO_FEE = 150
 export const METRO_USE_FEE = 150
 

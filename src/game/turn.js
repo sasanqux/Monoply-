@@ -9,7 +9,7 @@ import { alivePlayers, checkBankrupt, getWinnerByElimination, settleByTurns } fr
 const HAND_LIMIT = 10
 const ITEM_LIMIT = 5
 
-// 通用事件池（山城奇遇，含抽卡/得道具/载具丢失）
+// 通用事件池（山城奇遇，含抽卡/得道具/载具丢失/重庆特色）
 const EVENT_POOL = [
   { text: '捡到钱包，天降横财', delta: 300 },
   { text: '交通违章罚款', delta: -200 },
@@ -23,6 +23,13 @@ const EVENT_POOL = [
   { text: '载具被拖走，含泪走路', delta: -120, loseVehicle: true },
   { text: '偶遇神秘人，送了一张卡片！', delta: 0, card: true },
   { text: '在旧货堆里捡到一件道具！', delta: 0, item: true },
+  // 重庆特色
+  { text: '洪崖洞夜景直播，收了一波打赏', delta: 280 },
+  { text: '长江索道排队太久，改打车破财', delta: -220 },
+  { text: '磁器口试吃麻花，顺手买了两袋', delta: -130 },
+  { text: '南山一棵树帮游客拍照，赚了外快', delta: 160 },
+  { text: '轻轨穿楼拍视频火了，流量变现', delta: 240 },
+  { text: '火锅太辣肠胃罢工，看病花了一笔', delta: -320 },
 ]
 
 // 火锅事件池（重庆火锅格）
@@ -32,6 +39,9 @@ const HOTPOT_POOL = [
   { text: '朋友请客白吃一顿火锅', delta: 0 },
   { text: '火锅太辣，肚子拉得够呛', delta: -100 },
   { text: '火锅店抽奖中免单，还倒赚', delta: 120 },
+  { text: '九宫格点多了，打包带走', delta: -60 },
+  { text: '毛肚鸭肠拼盘翻倍，店家多送', delta: 90 },
+  { text: '被辣哭但发了条搞笑视频，涨粉', delta: 180 },
 ]
 
 export function drawEvent() {
