@@ -35,10 +35,30 @@ watch(
   () => props.state?.dice,
   (dice) => {
     if (!dice) return
-    diceFx.value = { dice: [...dice], id: ++diceSeq }
-    // 骰子动画总时长约 4.4s：下落 0.8s → 弹跳 0.9s → 静止展示 2.3s → 淡出 0.4s
+    const id = ++diceSeq
+    const final = [...dice]
+    // show = 当前显示的点数（滚动期间随机跳，定格后 = 最终点数）
+    diceFx.value = { dice: final, show: [1, 1], rolling: true, id }
+
+    // 滚动阶段（0 ~ 1.7s）：点数飞快随机跳，模拟真骰子翻滚
+    let elapsed = 0
+    const rollTimer = setInterval(() => {
+      elapsed += 90
+      if (!diceFx.value || diceFx.value.id !== id) { clearInterval(rollTimer); return }
+      if (elapsed >= 1700) {
+        clearInterval(rollTimer)
+        diceFx.value = { ...diceFx.value, show: final, rolling: false }
+      } else {
+        diceFx.value = {
+          ...diceFx.value,
+          show: final.map(() => 1 + Math.floor(Math.random() * 6)),
+        }
+      }
+    }, 90)
+
+    // 动画总时长约 4.4s：下落 0.8s → 弹跳 0.9s（滚动）→ 定格 2.3s → 淡出 0.4s
     setTimeout(() => {
-      if (diceFx.value?.id === diceSeq) diceFx.value = null
+      if (diceFx.value?.id === id) diceFx.value = null
     }, 4400)
   }
 )
@@ -148,26 +168,26 @@ watch(
 
 <template>
   <div class="fx" aria-hidden="true">
-    <!-- 掷骰动画：直接画两颗骰子（白色圆角方块 + 红点表示点数），无面板无叠字 -->
+    <!-- 掷骰动画：两颗骰子下落翻滚（点数随机跳）→ 定格显示真实点数 -->
     <div v-if="diceFx" :key="diceFx.id" class="fx__dice-wrap">
-      <svg
+      <span
         v-for="(d, i) in diceFx.dice"
         :key="i"
         class="fx__dice"
-        :class="'fx__dice--' + i"
-        viewBox="0 0 24 24"
-        aria-hidden="true"
+        :class="[diceFx.rolling ? 'fx__dice--rolling' : '', 'fx__dice--' + i]"
       >
-        <rect x="1.5" y="1.5" width="21" height="21" rx="4.5" fill="#fff" stroke="#1a1a1a" stroke-width="2.4" />
-        <circle
-          v-for="(p, j) in dotsOf(d)"
-          :key="j"
-          :cx="p[0]"
-          :cy="p[1]"
-          r="2.6"
-          fill="#1a1a1a"
-        />
-      </svg>
+        <svg class="fx__dice-face" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="1.5" y="1.5" width="21" height="21" rx="4.5" fill="#fff" stroke="#1a1a1a" stroke-width="2.4" />
+          <circle
+            v-for="(p, j) in dotsOf(diceFx.show[i])"
+            :key="j"
+            :cx="p[0]"
+            :cy="p[1]"
+            r="2.6"
+            fill="#1a1a1a"
+          />
+        </svg>
+      </span>
     </div>
 
     <!-- 逐格走动的棋子 -->
@@ -219,6 +239,25 @@ watch(
 .fx__dice {
   width: 84px;
   height: 84px;
+  display: inline-block;
+}
+
+/* 滚动阶段：骰子快速旋转抖动（模拟真骰子翻滚） */
+.fx__dice--rolling {
+  animation: dice-roll 0.18s linear infinite;
+}
+
+@keyframes dice-roll {
+  0% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(90deg) scale(1.05); }
+  50% { transform: rotate(180deg) scale(1); }
+  75% { transform: rotate(270deg) scale(1.05); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+.fx__dice-face {
+  width: 100%;
+  height: 100%;
   /* 白骰子浮在棋盘上：硬边阴影制造"立体落下"感 */
   filter: drop-shadow(4px 4px 0 rgba(26, 26, 26, 0.55));
   /* 下落 0.8s → 弹跳 0.9s → 静止到 4.0s → 淡出 0.4s；静止展示 2.3s 让玩家读清点数 */
@@ -226,7 +265,7 @@ watch(
 }
 
 /* 第二颗骰子稍微延迟落下，更有节奏感 */
-.fx__dice--1 {
+.fx__dice--1 .fx__dice-face {
   animation-delay: 0.15s, 0.95s, 4.15s;
 }
 
