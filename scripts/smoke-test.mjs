@@ -187,8 +187,8 @@ console.log('▶ 交通工具')
     { id: 'p1', name: 'A', isAI: true },
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
-  check('初始走路 2 骰', VEHICLES.walk.dice === 2)
-  check('飞机 6 骰', VEHICLES.plane.dice === 6)
+  check('初始走路 1 骰', VEHICLES.walk.dice === 1)
+  check('飞机 5 骰', VEHICLES.plane.dice === 5)
   const s2 = gameReducer(s, { type: 'ROLL_DICE' })
   check('掷骰/落地结算不崩溃', s2.status === 'playing' || s2.status === 'finished')
 }

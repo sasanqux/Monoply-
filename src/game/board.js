@@ -31,13 +31,13 @@ export const SHOPS = [
   { level: 3, name: '串串店', icon: 'skewer' },
 ]
 
-// 载具 → 掷骰数
+// 载具 → 掷骰数（走路 1 颗，升级载具后变多）
 export const VEHICLES = {
-  walk: { name: '走路', dice: 2, icon: 'bike' },
-  bike: { name: '自行车', dice: 3, icon: 'bike' },
-  moto: { name: '摩托', dice: 4, icon: 'moto' },
-  car: { name: '汽车', dice: 5, icon: 'car' },
-  plane: { name: '飞机', dice: 6, icon: 'plane' },
+  walk: { name: '走路', dice: 1, icon: 'bike' },
+  bike: { name: '自行车', dice: 2, icon: 'bike' },
+  moto: { name: '摩托', dice: 3, icon: 'moto' },
+  car: { name: '汽车', dice: 4, icon: 'car' },
+  plane: { name: '飞机', dice: 5, icon: 'plane' },
 }
 export const VEHICLE_ORDER = ['walk', 'bike', 'moto', 'car', 'plane']
 

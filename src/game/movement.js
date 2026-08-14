@@ -4,21 +4,27 @@ import { addMoney, payMoney } from './bank.js'
 import { tryShield } from './card.js'
 import { checkBankrupt } from './gameOver.js'
 
-// 掷骰：骰子数由载具决定（走路 2 / 自行车 3 / 摩托 4 / 汽车 5 / 飞机 6）
+// 掷骰：骰子数由载具决定（走路 1 / 自行车 2 / 摩托 3 / 汽车 4 / 飞机 5）
 export function rollDice() {
-  return [1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6)]
+  return [1 + Math.floor(Math.random() * 6)]
 }
 
-// 按载具生成骰子数组；遥控骰子时用指定点数
+// 按载具生成骰子数组；遥控骰子时用指定点数（按骰子数均分）
 export function rollForPlayer(player) {
+  const count = VEHICLES[player.vehicle]?.dice ?? 1
   if (player.remoteDice != null) {
     const v = player.remoteDice
     player.remoteDice = null
-    const a = Math.min(6, Math.max(1, Math.ceil(v / 2)))
-    const b = Math.min(6, Math.max(1, v - a))
-    return [a, b]
+    const dice = []
+    let rem = v
+    for (let i = 0; i < count; i++) {
+      const left = count - i
+      const d = Math.min(6, Math.max(1, Math.round(rem / left)))
+      dice.push(d)
+      rem -= d
+    }
+    return dice
   }
-  const count = VEHICLES[player.vehicle]?.dice ?? 2
   const dice = []
   for (let i = 0; i < count; i++) dice.push(1 + Math.floor(Math.random() * 6))
   return dice
