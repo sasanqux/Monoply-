@@ -4,20 +4,34 @@ import SetupPanel from './components/SetupPanel.vue'
 import Board from './components/Board.vue'
 import ActionPanel from './components/ActionPanel.vue'
 import SidePanel from './components/SidePanel.vue'
+import Encyclopedia from './components/Encyclopedia.vue'
 import BagsBar from './components/BagsBar.vue'
 import MyPanelModal from './components/MyPanelModal.vue'
 import ResultOverlay from './components/ResultOverlay.vue'
 import LandInfoModal from './components/LandInfoModal.vue'
 import DiceThrow from './components/DiceThrow.vue'
 import ComicIcon from './components/ComicIcon.vue'
-import { createInitialState, gameReducer, aiDecide, currentPlayer, TILES, isPropertyTile, isBridge, cardTargetKind, VEHICLES } from './game/index.js'
+import DebugPanel from './components/DebugPanel.vue'
+import TradeModal from './components/TradeModal.vue'
+import { createInitialState, gameReducer, aiDecide, currentPlayer, TILES, isPropertyTile, isBridge, cardTargetKind, VEHICLES, CARDS } from './game/index.js'
+import { connect, disconnect } from './net/socket.js'
+import Home from './components/Home.vue'
+import ModeSelect from './components/ModeSelect.vue'
+import Lobby from './components/Lobby.vue'
 
 const AI_NAMES = ['阿蓝', '阿绿', '阿橙', '阿紫', '阿粉', '阿灰', '阿黑']
+
+let socket = null
+const view = ref('home') // home | mode | setup | lobby | game
+const netMode = ref(false)
+const myPlayerId = ref(null)
+const lobbyMode = ref('') // 'create' | 'join'
 
 const state = ref(null)
 const lastOpts = ref(null)
 const lastMove = ref(null) // { prevPos, nextPos } 供棋子飞行特效
 const animating = ref(false) // 掷骰/走格动画播放中（期间暂不显示操作按钮，让玩家看清）
+const animatingPids = ref([]) // 当前正在走动的玩家 id（这些玩家的棋子要隐藏，其他玩家正常显示）
 let aiTimer = null
 let animTimer = null
 
@@ -27,28 +41,97 @@ const actionPanelEl = ref(null)   // 操作面板 DOM（骰子初始位置锚点
 const diceThrowing = ref(false)   // 玩家投掷动画播放中（期间 BoardFx 不播骰子动画）
 const diceRolled = ref(false)     // 本回合已投掷（防止重投）
 
-// 卡牌/道具目标选择模式
-const selecting = ref(null) // { type:'card'|'item', id, mode:'tile'|'player'|'swap', swapStep, myTile }
-const dicePicker = ref(false)
-const remoteValue = ref(7)
+// 卡牌目标选择模式
+const selecting = ref(null) // { type:'card', id, mode:'tile'|'player'|'swap', swapStep, myTile }
 const infoTile = ref(null) // 当前查看详情的格子 id
-const myModal = ref(null) // 底部入口弹窗：'cards' | 'items' | 'lands' | 'other'
+const myModal = ref(null) // 底部入口弹窗：'cards' | 'lands' | 'stocks'
+const showEncyclopedia = ref(false) // 百科全书弹窗
 
-function startGame(opts) {
-  lastOpts.value = { ...opts }
+// ===== 交易系统 =====
+const tradeTarget = ref(null) // 交易目标玩家 id
+const showTradeModal = computed(() => !!tradeTarget.value)
+
+// ===== 调试台 =====
+const debugTeleport = ref(null) // { playerId } 传送模式：非空时点棋盘格子 = 传送该玩家
+
+function onTeleportMode(v) {
+  debugTeleport.value = v // null 或 { playerId }
+}
+
+// AI 快跑：静默推进 N 回合（跳过动画，人类也自动决策，遇分岔自动走随机分支）
+function fastForward(rounds) {
+  const st = state.value
+  if (!st || st.status !== 'playing') return
+  let s = st
+  const targetRound = st.round + Math.max(1, Math.floor(rounds || 1))
+  let guard = 0
+  while (s.status === 'playing' && s.round < targetRound && guard++ < 8000) {
+    let action
+    if (s.phase === 'fork' && s.pending?.kind === 'fork') {
+      action = { type: 'CHOOSE_FORK', tileId: s.pending.chosen }
+    } else if (s.phase === 'auction' && s.pending?.kind === 'auction') {
+      action = aiDecide(s, s.pending.turn) || { type: 'AUCTION_BID', raise: false }
+    } else {
+      const cur = currentPlayer(s)
+      if (!cur) break
+      action = aiDecide(s, cur.id) || { type: 'END_TURN' }
+    }
+    s = gameReducer(s, action)
+  }
+  state.value = s
+  lastWalkPaths.value = snapshotWalkPaths(s)
   lastMove.value = null
   animating.value = false
   diceThrowing.value = false
-  diceRolled.value = false
-  pendingMove.value = null
-  lastWalkPaths.value = {}
   clearTimeout(animTimer)
-  const players = []
-  for (let i = 0; i < opts.players; i++) {
-    players.push({ id: 'p' + (i + 1), name: i === 0 ? '我' : AI_NAMES[i - 1], isAI: i !== 0 })
-  }
-  state.value = createInitialState({ players, maxTurns: opts.maxTurns, startMoney: opts.startMoney })
   scheduleAI()
+}
+
+function startGame(opts) {
+  try {
+    lastOpts.value = { ...opts }
+    lastMove.value = null
+    animating.value = false
+    diceThrowing.value = false
+    diceRolled.value = false
+    lastWalkPaths.value = {}
+    stopStepping()
+    clearTimeout(animTimer)
+    const players = []
+    for (let i = 0; i < opts.players; i++) {
+      players.push({
+        id: 'p' + (i + 1),
+        name: i === 0 ? (opts.playerName || '我') : AI_NAMES[i - 1],
+        isAI: i !== 0,
+      })
+    }
+    state.value = createInitialState({ players, maxTurns: opts.maxTurns, startMoney: opts.startMoney })
+    netMode.value = false
+    view.value = 'game'
+    scheduleAI()
+  } catch (e) {
+    console.error('[startGame] ERROR:', e)
+  }
+}
+
+// 确保 socket 已连接（不重复 connect）
+function ensureSocket() {
+  if (!socket) {
+    socket = connect()
+  }
+  return socket
+}
+
+// 联进入游戏
+function onEnterNetGame({ roomId, gameState }) {
+  netMode.value = true
+  state.value = gameState
+  view.value = 'game'
+  // 清理旧监听避免重复
+  socket.off('gameState')
+  socket.on('gameState', ({ state: gs }) => {
+    state.value = gs
+  })
 }
 
 // 已动画过的 walkPath 快照（按玩家 id）；用于差量计算"本段该走的格子"
@@ -77,13 +160,42 @@ function buildMovePaths(newState, prevMap) {
       if (ok) startIdx = prev.length
     }
     const seg = wp.slice(startIdx)
-    if (seg.length > 1) paths.push({ pid: pl.id, path: seg })
+    if (seg.length >= 1) {
+      // 补上起点，让棋子从上一格滑入第一个目标格（避免闪现）
+      const from = startIdx > 0 ? wp[startIdx - 1] : pl.pos
+      if (from === seg[0]) continue // 起点=终点，无需动画
+      paths.push({ pid: pl.id, path: [from, ...seg] })
+    }
   }
   return { paths, nextMap }
 }
 
+// 打开交易面板
+function openTrade(playerId) {
+  tradeTarget.value = playerId
+}
+
+function onTradeOffer(payload) {
+  tradeTarget.value = null
+  dispatch({ type: 'TRADE_OFFER', ...payload })
+}
+
+function onTradeAccept() {
+  dispatch({ type: 'TRADE_ACCEPT' })
+}
+
+function onTradeReject() {
+  dispatch({ type: 'TRADE_REJECT' })
+}
+
 function dispatch(action) {
   if (!state.value || state.value.status !== 'playing') return
+  // 联机模式：发给服务器，等广播回来再更新
+  if (netMode.value) {
+    socket.emit('action', action)
+    return
+  }
+  // 单机模式：本地算
   const prevMap = lastWalkPaths.value
   state.value = gameReducer(state.value, action)
   const { paths, nextMap } = buildMovePaths(state.value, prevMap)
@@ -92,20 +204,25 @@ function dispatch(action) {
     paths,
     n: (lastMove.value?.n ?? 0) + 1,
   }
-  // 有走格动画时，动画期间锁住操作按钮（骰子 4.4s + 走格 0.4s/格 + 落地 0.5s）
   if (paths.length) {
+    // 有走格动画：锁按钮 + 隐藏真实棋子，动画结束后解锁
     animating.value = true
-    const animMs = 4400 + Math.max(...paths.map((p) => p.path.length)) * 400 + 500
+    animatingPids.value = paths.map((p) => p.pid)
+    const steps = Math.max(...paths.map((p) => p.path.length - 1))
+    const animMs = steps * 400 + 500
     clearTimeout(animTimer)
-    animTimer = setTimeout(() => { animating.value = false }, animMs)
+    animTimer = setTimeout(() => { animating.value = false; animatingPids.value = [] }, animMs)
+  } else {
+    animating.value = false
+    animatingPids.value = []
   }
   scheduleAI()
 }
 
-// ===== 可拿取骰子回调 =====
-const pendingMove = ref(null) // 投掷期间暂存的走格路径，settle 时放行
+// ===== 走格动画：前端逐格推进（不隐藏真实棋子，让它逐格跳） =====
+let stepTimer = null
 
-// 松手瞬间：骰子已飞向棋盘，此时生成本回合点数（dispatch ROLL_DICE），但走格动画等骰子定格后再放行
+// 松手瞬间：掷骰子，只算点数不实际走
 function onDiceThrow() {
   if (!state.value || state.value.status !== 'playing') return
   if (diceRolled.value) return
@@ -113,36 +230,51 @@ function onDiceThrow() {
   if (!cur || cur.isAI || state.value.phase !== 'roll') return
   diceRolled.value = true
   diceThrowing.value = true
-  const prevMap = lastWalkPaths.value
-  state.value = gameReducer(state.value, { type: 'ROLL_DICE' })
-  const { paths, nextMap } = buildMovePaths(state.value, prevMap)
-  lastWalkPaths.value = nextMap
-  pendingMove.value = {
-    paths,
-    n: (lastMove.value?.n ?? 0) + 1,
-  }
-  scheduleAI()
+  animating.value = true
+  for (const p of state.value.players) { p.walkPath = [p.pos] }
+  dispatch({ type: 'ROLL_DICE' })
 }
 
-// 分岔路口：人类玩家选路（AI 自动选，不会走到这里）
-function onChooseFork(tileId) {
-  dispatch({ type: 'CHOOSE_FORK', tileId })
-}
-
-// 骰子定格完成：放行走格动画（此时玩家已看清点数）
+// 骰子定格后：开始逐格推进
 function onDiceSettle() {
   diceThrowing.value = false
-  if (pendingMove.value) {
-    lastMove.value = pendingMove.value
-    pendingMove.value = null
-    const pl = lastMove.value.paths
-    if (pl.length) {
-      animating.value = true
-      const animMs = 4400 + Math.max(...pl.map((p) => p.path.length)) * 400 + 500
-      clearTimeout(animTimer)
-      animTimer = setTimeout(() => { animating.value = false }, animMs)
-    }
+  if (state.value?.stepsRemaining > 0) {
+    startStepping()
+  } else {
+    animating.value = false
+    animatingPids.value = []
   }
+}
+
+// 逐格推进：每 450ms dispatch STEP
+function startStepping() {
+  stopStepping()
+  stepTimer = setInterval(() => {
+    if (!state.value || state.value.status !== 'playing') { stopStepping(); return }
+    if (state.value.phase === 'fork') { stopStepping(); return }
+    if (!state.value.stepsRemaining || state.value.stepsRemaining <= 0) {
+      stopStepping()
+      animating.value = false
+      scheduleAI()
+      return
+    }
+    dispatch({ type: 'STEP' })
+    // 进入 fork → 暂停等选路
+    if (state.value.phase === 'fork') { stopStepping() }
+  }, 450)
+}
+
+function stopStepping() {
+  clearInterval(stepTimer)
+  stepTimer = null
+}
+
+// 分岔路口：玩家选路后走 1 步，剩余步数继续推进
+function onForkClose() {
+  if (!state.value?.pending || state.value.pending.kind !== 'fork') return
+  const pending = state.value.pending
+  const tileId = pending.canPick ? pending.options[0] : pending.chosen
+  dispatch({ type: 'CHOOSE_FORK', tileId })
 }
 
 // 新回合开始时重置"已投掷"标记
@@ -156,13 +288,24 @@ watch(
 function scheduleAI() {
   const st = state.value
   if (!st || st.status !== 'playing') return
-  const cur = currentPlayer(st)
-  if (!cur.isAI) return
-  // AI 行动延迟 = 基础延迟 + 骰子动画 4.4s + 走格动画时长（0.4s/格 + 落地停留 0.5s，让玩家看清）
-  const walkTime = lastMove.value?.paths?.length
-    ? 4400 + Math.max(...lastMove.value.paths.map((p) => p.path.length)) * 400 + 500
-    : 0
-  const delay = (st.phase === 'roll' ? 1200 : 600) + walkTime
+  // 拍卖揭晓阶段：自动触发揭晓
+  if (st.phase === 'auction' && st.pending?.kind === 'auction' && st.pending.roundStep === 1) {
+    clearTimeout(aiTimer)
+    aiTimer = setTimeout(() => dispatch({ type: 'AUCTION_REVEAL' }), 1500)
+    return
+  }
+  const cur = st.phase === 'auction' && st.pending?.kind === 'auction' ? st.players[st.pending.turn] : currentPlayer(st)
+  if (!cur || !cur.isAI) return
+  // AI 在 step 阶段：自动逐格推进
+  if (st.phase === 'step' && st.stepsRemaining > 0) {
+    clearTimeout(aiTimer)
+    aiTimer = setTimeout(() => {
+      dispatch({ type: 'STEP' })
+    }, 300)
+    return
+  }
+  // 其他阶段：正常 AI 决策
+  const delay = st.phase === 'roll' ? 1200 : st.phase === 'auction' ? 900 : 600
   clearTimeout(aiTimer)
   aiTimer = setTimeout(() => {
     const action = aiDecide(state.value, cur.id)
@@ -172,6 +315,16 @@ function scheduleAI() {
 
 const cur = computed(() => (state.value ? currentPlayer(state.value) : null))
 const isMyTurn = computed(() => cur.value && !cur.value.isAI)
+
+// 随机路线卡片：仅在轮到我、且骰子/走格动画结束（确保玩家看清）时显示；必须点右上角 ✕ 关闭
+const showForkCard = computed(() => {
+  const st = state.value
+  if (!st) return false
+  if (st.phase !== 'fork' || st.pending?.kind !== 'fork') return false
+  if (!isMyTurn.value) return false
+  if (animating.value || diceThrowing.value) return false
+  return true
+})
 
 // 当前是否可投掷骰子：轮到我 + 掷骰阶段 + 本回合未投过 + 非选择目标模式
 const canThrowDice = computed(() => {
@@ -190,8 +343,12 @@ const selectableTiles = computed(() => {
   if (!st || !selecting.value) return []
   const me = currentPlayer(st)
   if (selecting.value.type === 'metro') {
-    // 乘轻轨：其他所有轻轨站可选
-    return TILES.filter((t) => t.type === 'metro' && t.id !== me.pos).map((t) => t.id)
+    // 乘轻轨：其他所有轻轨站可选（type === 'station'）
+    return TILES.filter((t) => t.type === 'station' && t.id !== me.pos).map((t) => t.id)
+  }
+  if (selecting.value.type === 'checkin') {
+    // 打卡大礼包：任意格可选
+    return TILES.filter((t) => t && !t.removed).map((t) => t.id)
   }
   if (selecting.value.type === 'card') {
     const card = me.hand.find((c) => c.id === selecting.value.id)
@@ -203,22 +360,11 @@ const selectableTiles = computed(() => {
         return TILES.filter((t) => st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id) && (p.levels[t.id] ?? 0) >= 1)).map((t) => t.id)
       case 'monster':
         return TILES.filter((t) => st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id))).map((t) => t.id)
-      case 'nuke':
-        return TILES.filter((t) => st.players.some((p) => p.alive && p.properties.includes(t.id))).map((t) => t.id)
-      case 'closeBridge':
-        return TILES.filter((t) => isBridge(t) && !(st.closedBridges[t.id] > 0)).map((t) => t.id)
       case 'swap':
         if (selecting.value.swapStep === 1) return me.properties.filter((i) => isPropertyTile(TILES[i]))
         return TILES.filter((t) => st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id))).map((t) => t.id)
       default:
         return []
-    }
-  }
-  if (selecting.value.type === 'item') {
-    const item = me.items.find((it) => it.id === selecting.value.id)
-    if (!item) return []
-    if (item.type === 'barrier' || item.type === 'mine' || item.type === 'bomb' || item.type === 'portal') {
-      return TILES.map((t) => t.id)
     }
   }
   return []
@@ -242,10 +388,18 @@ const selectablePlayers = computed(() => {
 })
 
 function onTileClick(tileId) {
+  // 调试传送模式优先：点棋盘格子 = 把目标玩家传送到该格（触发落地）
+  if (debugTeleport.value) {
+    dispatch({ type: 'DEBUG_TELEPORT', playerId: debugTeleport.value.playerId, tileId })
+    debugTeleport.value = null
+    return
+  }
   if (!selecting.value) return
   const sel = selecting.value
   if (sel.type === 'metro') {
     dispatch({ type: 'TRAVEL_METRO', targetTileId: tileId })
+  } else if (sel.type === 'checkin') {
+    dispatch({ type: 'CHECKIN_TELEPORT', tileId })
   } else if (sel.type === 'card') {
     if (sel.mode === 'swap' && sel.swapStep === 1) {
       selecting.value = { ...sel, swapStep: 2, myTile: tileId }
@@ -256,8 +410,6 @@ function onTileClick(tileId) {
         ? { myTile: sel.myTile, theirTile: tileId }
         : { tileId }
     dispatch({ type: 'USE_CARD', cardId: sel.id, target })
-  } else if (sel.type === 'item') {
-    dispatch({ type: 'USE_ITEM', itemId: sel.id, tileId })
   }
   selecting.value = null
 }
@@ -271,9 +423,10 @@ function onPlayerClick(playerId) {
   selecting.value = null
 }
 
-// 手牌/道具点击
+// 手牌点击
 function useCard(card) {
   if (!isMyTurn.value) return
+  myModal.value = null // 先关掉底部弹窗，露出棋盘（选目标/看使用效果）
   const kind = cardTargetKind(card.type)
   if (kind === 'none') {
     dispatch({ type: 'USE_CARD', cardId: card.id })
@@ -292,33 +445,15 @@ function useCard(card) {
   }
 }
 
-// 遥控骰子点数范围（跟随载具骰子数）
-const remoteDiceMin = computed(() => {
-  const c = cur.value
-  return c ? VEHICLES[c.vehicle]?.dice ?? 1 : 2
-})
-const remoteDiceMax = computed(() => remoteDiceMin.value * 6)
-
-function useItem(item) {
-  if (!isMyTurn.value) return
-  if (item.type === 'remoteDice') {
-    remoteValue.value = Math.min(7, remoteDiceMax.value)
-    dicePicker.value = true
-    return
-  }
-  selecting.value = { type: 'item', id: item.id }
-}
-
-function confirmRemoteDice() {
-  const me = currentPlayer(state.value)
-  const it = me.items.find((i) => i.type === 'remoteDice')
-  if (it) dispatch({ type: 'USE_ITEM', itemId: it.id, value: remoteValue.value })
-  dicePicker.value = false
-}
-
 function startMetro() {
   if (!isMyTurn.value) return
   selecting.value = { type: 'metro', id: null }
+}
+
+// 从轻轨格详情卡点"乘轻轨"：关详情 → 进入选站模式
+function onLandInfoMetro() {
+  infoTile.value = null
+  startMetro()
 }
 
 function openTileInfo(id) {
@@ -333,13 +468,13 @@ function upgradeFromInfo(id) {
 
 function cancelSelect() {
   selecting.value = null
-  dicePicker.value = false
 }
 
 const selectHint = computed(() => {
   const sel = selecting.value
   if (!sel) return ''
   if (sel.type === 'metro') return '选一个轻轨站（花 ¥150 乘过去）'
+  if (sel.type === 'checkin') return '选择大礼包传送目的地（免费）'
   if (sel.type === 'card') {
     if (sel.mode === 'swap' && sel.swapStep === 1) return '点一块自己的地（用于交换）'
     if (sel.mode === 'swap') return '点一块对方的地（换过去）'
@@ -348,6 +483,80 @@ const selectHint = computed(() => {
   }
   return '选一个放置/传送的格子'
 })
+
+// 朝天门打卡大礼包弹窗（我的回合、动画结束后显示）
+const showCheckin = computed(() => {
+  const st = state.value
+  if (!st || st.pending?.kind !== 'checkin') return false
+  if (!isMyTurn.value) return false
+  if (animating.value || diceThrowing.value || selecting.value) return false
+  return true
+})
+function startCheckinTeleport() {
+  selecting.value = { type: 'checkin' }
+}
+
+// 拍卖弹窗：轮到人类玩家出价时显示
+const showAuction = computed(() => {
+  const st = state.value
+  if (!st || st.phase !== 'auction' || st.pending?.kind !== 'auction') return false
+  const ap = st.pending
+  if (ap.roundStep !== 0) return false // 出价阶段才显示
+  const bidder = st.players[ap.turn]
+  return !!bidder && !bidder.isAI
+})
+
+// 拍卖揭晓弹窗：所有玩家出完后显示结果
+const showAuctionReveal = computed(() => {
+  const st = state.value
+  if (!st || st.phase !== 'auction' || st.pending?.kind !== 'auction') return false
+  return st.pending.roundStep === 1
+})
+
+// 人类拍卖出价输入
+const auctionBid = ref(0)
+
+// 卡片商店弹窗：路过双碑/巴南、轮到我的回合、动画结束后显示
+const showShop = computed(() => {
+  const st = state.value
+  if (!st || st.pending?.kind !== 'shop') return false
+  if (!isMyTurn.value) return false
+  if (animating.value || diceThrowing.value || selecting.value) return false
+  return true
+})
+
+// 彩票弹窗
+const showLottery = computed(() => {
+  const st = state.value
+  if (!st || st.pending?.kind !== 'lottery') return false
+  if (!isMyTurn.value) return false
+  if (animating.value || diceThrowing.value || selecting.value) return false
+  return true
+})
+const myNumbers = computed(() => {
+  const st = state.value
+  if (!st || !cur.value) return []
+  return st.lottery?.pickedNumbers?.[cur.value.id] || []
+})
+function isNumberTaken(n) {
+  const st = state.value
+  if (!st) return false
+  for (const nums of Object.values(st.lottery?.pickedNumbers || {})) {
+    if (nums.includes(n)) return true
+  }
+  return false
+}
+function isMyNumber(n) {
+  return myNumbers.value.includes(n)
+}
+
+// 股票事件处理
+function onStockBuy(payload) {
+  dispatch({ type: 'STOCK_BUY', code: payload.code, shares: payload.shares })
+}
+function onStockSell(payload) {
+  dispatch({ type: 'STOCK_SELL', code: payload.code, shares: payload.shares })
+}
 </script>
 
 <template>
@@ -359,9 +568,34 @@ const selectHint = computed(() => {
       <span class="tag-comic tag-comic--red">两江 · 桥 · 卡牌</span>
     </header>
 
-    <SetupPanel v-if="!state" @start="startGame" />
+    <!-- 首页 -->
+    <Home v-if="view === 'home'" @start="view = 'mode'" />
 
-    <template v-else>
+    <!-- 选模式 -->
+    <ModeSelect
+      v-else-if="view === 'mode'"
+      @single="view = 'setup'"
+      @create="lobbyMode = 'create'; ensureSocket(); view = 'lobby'"
+      @join="lobbyMode = 'join'; ensureSocket(); view = 'lobby'"
+    />
+
+    <!-- 单机设置 -->
+    <SetupPanel
+      v-else-if="view === 'setup'"
+      @start="startGame"
+      @back="view = 'mode'"
+    />
+
+    <!-- 联机大厅 -->
+    <Lobby
+      v-else-if="view === 'lobby'"
+      :mode="lobbyMode"
+      @enter="onEnterNetGame"
+      @back="view = 'mode'"
+    />
+
+    <!-- 游戏界面 -->
+    <template v-else-if="view === 'game'">
       <div class="app__game">
         <main class="app__board">
           <div v-if="selecting" class="select-bar bubble">
@@ -375,7 +609,9 @@ const selectHint = computed(() => {
                 :current="cur"
                 :selectable="selectableTiles"
                 :last-move="lastMove"
-                :hide-pawns="diceThrowing"
+                :hide-pawns="false"
+                :extra-hide-pids="animating || diceThrowing ? animatingPids : []"
+                :teleport-mode="!!debugTeleport"
                 @tile-click="onTileClick"
                 @tile-info="openTileInfo"
               />
@@ -384,14 +620,14 @@ const selectHint = computed(() => {
           <ActionPanel ref="actionPanelEl" :state="state" :current="cur" :is-my-turn="isMyTurn" :animating="animating" @dispatch="dispatch" @metro="startMetro" />
         </main>
 
-        <SidePanel :state="state" :current="cur" :selectable-players="selectablePlayers" @player-click="onPlayerClick" />
+        <SidePanel :state="state" :current="cur" :selectable-players="selectablePlayers" @player-click="onPlayerClick" @trade="openTrade" />
       </div>
 
       <div class="app__bags">
-        <BagsBar :me="cur" @open="myModal = $event" />
+        <BagsBar :me="cur" @open="myModal = $event" @open-encyclopedia="showEncyclopedia = true" />
       </div>
 
-      <!-- 底部入口弹窗（卡牌/道具/地产/其它） -->
+      <!-- 底部入口弹窗（卡牌/地产/其它） -->
       <MyPanelModal
         v-if="myModal"
         :mode="myModal"
@@ -400,37 +636,31 @@ const selectHint = computed(() => {
         :is-my-turn="isMyTurn"
         @close="myModal = null"
         @use-card="useCard"
-        @use-item="useItem"
         @upgrade="(id) => dispatch({ type: 'UPGRADE_PROPERTY', tileId: id })"
         @info="openTileInfo"
+        @stock-buy="onStockBuy"
+        @stock-sell="onStockSell"
       />
 
-      <!-- 遥控骰子点数选择 -->
-      <div v-if="dicePicker" class="overlay-layer" @click.self="dicePicker = false">
-        <div class="card-comic card-comic--pad-lg dice-panel">
-          <h3 class="comic-title comic-title--md dice-panel__title"><ComicIcon name="dice" :size="22" /> 遥控骰子 · 选点数</h3>
-          <input v-model.number="remoteValue" class="input-comic" type="number" :min="remoteDiceMin" :max="remoteDiceMax" />
-          <p class="dice-panel__range">可设 {{ remoteDiceMin }} ~ {{ remoteDiceMax }} 点（{{ VEHICLES[cur.vehicle].name }} {{ VEHICLES[cur.vehicle].dice }} 颗骰子）</p>
-          <div class="dice-panel__btns">
-            <button class="btn-comic" @click="confirmRemoteDice">确定</button>
-            <button class="btn-comic btn-comic--ghost" @click="dicePicker = false">取消</button>
-          </div>
-        </div>
-      </div>
+      <!-- 百科全书弹窗 -->
+      <Encyclopedia v-if="showEncyclopedia" :state="state" @close="showEncyclopedia = false" />
 
       <ResultOverlay v-if="state.status === 'finished'" :state="state" @again="startGame(lastOpts)" />
 
-      <!-- 可拿取骰子（轮到我时拖到棋盘扔出去） -->
-      <DiceThrow
-        v-if="canThrowDice || diceThrowing"
-        :can-throw="canThrowDice"
-        :final-dice="state.dice || undefined"
-        :dice-count="cur ? VEHICLES[cur.vehicle]?.dice : 1"
-        :board-el="boardEl"
-        :anchor-el="actionPanelEl && actionPanelEl.$el"
-        @throw="onDiceThrow"
-        @settle="onDiceSettle"
-      />
+      <!-- 可拿取骰子（轮到我时拖到棋盘扔出去）：
+           Teleport 到 body 最外层，避免页面 DOM 里带 transform/filter 的祖先让 fixed 失效，导致骰子随页面滚动 -->
+      <Teleport to="body">
+        <DiceThrow
+          v-if="canThrowDice || diceThrowing"
+          :can-throw="canThrowDice"
+          :final-dice="state.dice || undefined"
+          :dice-count="cur ? VEHICLES[cur.vehicle]?.dice : 1"
+          :board-el="boardEl"
+          :anchor-el="actionPanelEl && actionPanelEl.$el"
+          @throw="onDiceThrow"
+          @settle="onDiceSettle"
+        />
+      </Teleport>
 
       <!-- 地块详情弹窗 -->
       <LandInfoModal
@@ -439,30 +669,194 @@ const selectHint = computed(() => {
         :tile-id="infoTile"
         @close="infoTile = null"
         @upgrade="upgradeFromInfo"
+        @metro="onLandInfoMetro"
       />
 
-      <!-- 分岔路口选路弹窗（人类玩家暂停等待选方向） -->
+      <!-- 分岔路口：选路卡可自选方向 / 无选路卡则随机分配 -->
       <div
-        v-if="state.phase === 'fork' && state.pending?.kind === 'fork' && !animating && !diceThrowing && isMyTurn"
-        class="overlay-layer"
+        v-if="showForkCard"
+        class="overlay-layer fork-card-overlay"
       >
-        <div class="card-comic card-comic--pad-lg fork-pop">
-          <h3 class="comic-title comic-title--md">⑂ 分岔路口 · 选一条路线</h3>
-          <p class="fork-pop__sub">
-            现在走到「{{ TILES[state.pending.tileId].name }}」，还剩 {{ state.pending.stepsLeft }} 步，选个方向继续走：
+        <div class="card-comic card-comic--pad-lg fork-card">
+          <button class="fork-card__close" @click="onForkClose" aria-label="关闭路线卡片">✕</button>
+          <div class="fork-card__dice">🎲</div>
+          <h3 class="comic-title comic-title--md">{{ state.pending.canPick ? '选路卡' : '随机路线' }}</h3>
+          <p class="fork-card__sub">
+            在「{{ TILES[state.pending.tileId].name }}」分岔口{{ state.pending.canPick ? '，选择一条路线' : '，已随机分配路线：' }}
           </p>
-          <div class="fork-pop__opts">
+          <!-- 自选模式：显示所有可选方向 -->
+          <div v-if="state.pending.canPick" class="fork-card__opts">
             <button
-              v-for="opt in state.pending.options"
-              :key="opt"
-              class="btn-comic"
-              @click="onChooseFork(opt)"
+              v-for="optId in state.pending.options"
+              :key="optId"
+              class="btn-comic btn-comic--sm fork-card__opt"
+              @click="dispatch({ type: 'CHOOSE_FORK', tileId: optId })"
             >
-              {{ TILES[opt].name }}
+              {{ TILES[optId].name }}
             </button>
+          </div>
+          <!-- 随机模式：显示结果 -->
+          <div v-else class="fork-card__route">{{ TILES[state.pending.chosen].name }}</div>
+          <p class="fork-card__hint">选择后会继续走完剩余 {{ state.pending.stepsLeft + 1 }} 步（含本步）· 点右上角 ✕ 关闭</p>
+        </div>
+      </div>
+
+      <!-- 卡片商店（路过双碑/巴南） -->
+      <div v-if="showShop" class="overlay-layer fork-card-overlay">
+        <div class="card-comic card-comic--pad-lg fork-card shop-card">
+          <button class="fork-card__close" @click="dispatch({ type: 'SHOP_CLOSE' })" aria-label="关闭商店">✕</button>
+          <div class="fork-card__dice">🛒</div>
+          <h3 class="comic-title comic-title--md">卡片商店</h3>
+          <p class="fork-card__sub">路过「{{ TILES[state.pending.tileId].name }}」卡片商店 · 我的积分 <b class="shop-pts">{{ cur.points }}</b></p>
+          <div class="shop-list">
+            <button
+              v-for="c in CARDS"
+              :key="c.type"
+              class="shop-row"
+              :disabled="cur.points < c.price || cur.hand.length >= 10"
+              @click="dispatch({ type: 'SHOP_BUY', cardId: c.type })"
+            >
+              <span class="shop-row__name">{{ c.name }}</span>
+              <span class="shop-row__desc">{{ c.desc }}</span>
+              <b class="shop-row__price">{{ c.price }}</b>
+            </button>
+          </div>
+          <p class="fork-card__hint">手牌上限 10 张 · 积分不足或手牌满时按钮置灰</p>
+          <button class="btn-comic btn-comic--ghost" @click="dispatch({ type: 'SHOP_CLOSE' })">离开商店</button>
+        </div>
+      </div>
+
+      <!-- 朝天门打卡大礼包 -->
+      <div v-if="showCheckin" class="overlay-layer fork-card-overlay">
+        <div class="card-comic card-comic--pad-lg fork-card">
+          <button class="fork-card__close" @click="dispatch({ type: 'CHECKIN_SKIP' })" aria-label="关闭大礼包">✕</button>
+          <div class="fork-card__dice">🎁</div>
+          <h3 class="comic-title comic-title--md">打卡大礼包</h3>
+          <p class="fork-card__sub">朝天门打卡满 3 次！获得：</p>
+          <div class="fork-card__route" style="font-size: 16px">💰 ¥5000 · 🃏 3 张随机卡 · 🚀 免费传送</div>
+          <button class="btn-comic" @click="startCheckinTeleport">选择去往哪里</button>
+        </div>
+      </div>
+
+      <!-- 地块拍卖 -->
+      <div v-if="showAuction" class="overlay-layer fork-card-overlay">
+        <div class="card-comic card-comic--pad-lg fork-card">
+          <div class="fork-card__dice">🔨</div>
+          <h3 class="comic-title comic-title--md">地块拍卖 · 第 {{ state.pending.round + 1 }} 轮</h3>
+          <p class="fork-card__sub">
+            正在拍卖「{{ TILES[state.pending.tileId].name }}」（原价 ¥{{ TILES[state.pending.tileId].price }}）
+          </p>
+          <div class="fork-card__route">零元起拍（盲拍，他人看不到你的出价）</div>
+          <p class="fork-card__hint">轮到你出价 · 现金 ¥{{ cur.money }} · 已出价 {{ Object.keys(state.pending.bids).length }}/{{ state.pending.aliveCount }}</p>
+          <div class="auction-input-row">
+            <input v-model.number="auctionBid" class="input-comic" type="number" min="0" :max="cur.money" step="100" placeholder="输入出价" />
+            <span class="auction-input-unit">元</span>
+          </div>
+          <div class="fork-card__btns">
+            <button class="btn-comic" @click="dispatch({ type: 'AUCTION_BID', amount: auctionBid }); auctionBid = 0">出价</button>
+            <button class="btn-comic btn-comic--ghost" @click="dispatch({ type: 'AUCTION_BID', amount: 0 })">放弃</button>
           </div>
         </div>
       </div>
+
+      <!-- 拍卖揭晓 -->
+      <div v-if="showAuctionReveal" class="overlay-layer fork-card-overlay">
+        <div class="card-comic card-comic--pad-lg fork-card">
+          <div class="fork-card__dice">📋</div>
+          <h3 class="comic-title comic-title--md">拍卖揭晓 · 第 {{ state.pending.round + 1 }} 轮</h3>
+          <p class="fork-card__sub">
+            「{{ TILES[state.pending.tileId].name }}」本轮出价：
+          </p>
+          <div class="auction-reveal-list">
+            <div v-for="(amt, i) in Object.values(state.pending.bids)" :key="i" class="auction-reveal-row">
+              <span class="auction-reveal-name">第 {{ i + 1 }} 位</span>
+              <span class="auction-reveal-amt">{{ amt > 0 ? '¥' + amt : '放弃' }}</span>
+            </div>
+          </div>
+          <p class="fork-card__hint">{{ state.pending.round + 1 >= state.pending.maxRounds ? '最终轮，最高价者得' : '若最高价平局则再加赛一轮' }}</p>
+          <button class="btn-comic" @click="dispatch({ type: 'AUCTION_REVEAL' })">看结果</button>
+        </div>
+      </div>
+
+      <!-- 彩票站弹窗 -->
+      <div v-if="showLottery" class="overlay-layer fork-card-overlay">
+        <div class="card-comic card-comic--pad-lg fork-card shop-card">
+          <button class="fork-card__close" @click="dispatch({ type: 'LOTTERY_CLOSE' })" aria-label="关闭彩票站">✕</button>
+          <div class="fork-card__dice">🎫</div>
+          <h3 class="comic-title comic-title--md">彩票站</h3>
+          <p class="fork-card__sub">路过「{{ state.pending?.tileId ? TILES[state.pending.tileId].name : '彩票站' }}」· 奖池 <b class="shop-pts">¥{{ state.lottery?.pool ?? 10000 }}</b></p>
+          <div class="lottery-info">
+            <span v-if="state.lottery?.phase === 'buying'">📋 选一个 1-100 的数字（全局唯一）</span>
+            <span v-else>🎰 开奖中... 当前中奖号: {{ state.lottery?.currentWinning ?? '?' }}</span>
+          </div>
+          <div v-if="state.lottery?.phase === 'buying'" class="lottery-buy">
+            <div class="lottery-numbers">
+              <button
+                v-for="n in 100"
+                :key="n"
+                class="lot-num"
+                :class="{ 'lot-num--taken': isNumberTaken(n), 'lot-num--mine': isMyNumber(n) }"
+                :disabled="isNumberTaken(n)"
+                @click="dispatch({ type: 'BUY_TICKET', number: n })"
+              >{{ n }}</button>
+            </div>
+            <div class="lottery-my">
+              <span v-if="myNumbers.length">我的号码: {{ myNumbers.join(', ') }}</span>
+              <span v-else>本回合还没买彩票</span>
+            </div>
+          </div>
+          <button class="btn-comic btn-comic--ghost" @click="dispatch({ type: 'LOTTERY_CLOSE' })">离开彩票站</button>
+        </div>
+      </div>
+
+      <!-- 交易面板 -->
+      <TradeModal
+        v-if="showTradeModal"
+        :state="state"
+        :me="cur"
+        :target-player-id="tradeTarget"
+        @close="tradeTarget = null"
+        @offer="onTradeOffer"
+      />
+
+      <!-- 交易提案弹窗（对方收到时显示） -->
+      <div v-if="state.pending?.kind === 'trade' && state.pending.to === cur?.id && !cur?.isAI" class="overlay-layer fork-card-overlay">
+        <div class="card-comic card-comic--pad-lg fork-card">
+          <div class="fork-card__dice">🤝</div>
+          <h3 class="comic-title comic-title--md">交易提案</h3>
+          <p class="fork-card__sub">{{ state.players.find(p => p.id === state.pending.from)?.name }} 向你发起了交易：</p>
+          <div class="trade-preview">
+            <div class="trade-preview__col">
+              <span class="trade-preview__label">对方给出</span>
+              <span v-if="state.pending.offer.money > 0" class="trade-preview__item">💰 ¥{{ state.pending.offer.money }}</span>
+              <span v-for="id in state.pending.offer.lands" :key="'o'+id" class="trade-preview__item">🏠 {{ TILES[id]?.name }}</span>
+              <span v-if="!state.pending.offer.lands?.length && !state.pending.offer.money" class="trade-preview__item trade-preview__item--empty">无</span>
+            </div>
+            <div class="trade-preview__col">
+              <span class="trade-preview__label">对方想要</span>
+              <span v-if="state.pending.request.money > 0" class="trade-preview__item">💰 ¥{{ state.pending.request.money }}</span>
+              <span v-for="id in state.pending.request.lands" :key="'r'+id" class="trade-preview__item">🏠 {{ TILES[id]?.name }}</span>
+              <span v-if="!state.pending.request.lands?.length && !state.pending.request.money" class="trade-preview__item trade-preview__item--empty">无</span>
+            </div>
+          </div>
+          <div class="fork-card__btns">
+            <button class="btn-comic btn-comic--ghost" @click="onTradeReject">拒绝</button>
+            <button class="btn-comic" @click="onTradeAccept">同意</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 调试台（右下角悬浮） -->
+      <DebugPanel
+        :state="state"
+        :current-id="cur?.id"
+        :teleport-on="!!debugTeleport"
+        @debug="dispatch"
+        @teleport-mode="onTeleportMode"
+        @reset="startGame(lastOpts)"
+        @fast-forward="fastForward"
+      />
+
     </template>
 
     <footer class="app__foot">重庆大富翁 · Comic Style · M0+ 版</footer>
@@ -487,7 +881,7 @@ const selectHint = computed(() => {
 
 .app__game {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-columns: minmax(0, 1fr) 380px;
   gap: var(--space-3);
   align-items: start;
 }
@@ -562,24 +956,266 @@ const selectHint = computed(() => {
   opacity: 0.65;
 }
 
-.fork-pop {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  align-items: flex-start;
-  max-width: 420px;
+.fork-card-overlay {
+  z-index: 80;
 }
 
-.fork-pop__sub {
+.fork-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  text-align: center;
+  max-width: 380px;
+  border-width: 4px;
+  box-shadow: 7px 7px 0 0 var(--ink);
+}
+
+.fork-card__close {
+  position: absolute;
+  top: -14px;
+  right: -14px;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  background: var(--pop-red);
+  color: #fff;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  box-shadow: 3px 3px 0 0 var(--ink);
+  transition: transform 0.1s ease;
+}
+.fork-card__close:hover { transform: scale(1.12) rotate(8deg); }
+.fork-card__close:active { transform: scale(0.94); }
+
+.fork-card__dice {
+  font-size: 40px;
+  line-height: 1;
+  animation: fork-dice-spin 0.9s ease-in-out infinite;
+}
+@keyframes fork-dice-spin {
+  0%, 100% { transform: rotate(-12deg) scale(1); }
+  50% { transform: rotate(12deg) scale(1.12); }
+}
+
+.fork-card__sub {
   font-size: 14px;
   font-weight: 900;
   line-height: 1.5;
+  margin: 0;
 }
 
-.fork-pop__opts {
+.fork-card__route {
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  padding: 8px 26px;
+  background: var(--pop-yellow);
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: 4px 4px 0 0 var(--ink);
+  transform: rotate(-2deg);
+}
+
+.fork-card__hint {
+  font-size: 12px;
+  font-weight: 900;
+  opacity: 0.7;
+  margin: 0;
+}
+
+.fork-card__btns {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
+  justify-content: center;
+}
+
+.fork-card__opts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.fork-card__opt {
+  width: 100%;
+  text-align: center;
+}
+
+/* ===== 卡片商店 ===== */
+.shop-card {
+  max-width: 440px;
+  width: 100%;
+}
+.shop-pts {
+  color: var(--pop-blue);
+  font-size: 16px;
+}
+.shop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+  width: 100%;
+}
+.shop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 2.5px solid var(--ink);
+  border-radius: 8px;
+  background: #eef2ff;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: transform 0.1s ease;
+}
+.shop-row:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 0 var(--ink);
+}
+.shop-row:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.shop-row__name {
+  font-size: 13px;
+  font-weight: 900;
+  min-width: 62px;
+}
+.shop-row__desc {
+  font-size: 11px;
+  font-weight: 900;
+  opacity: 0.6;
+  flex: 1;
+}
+.shop-row__price {
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--pop-blue);
+}
+
+/* ===== 拍卖 ===== */
+.auction-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.auction-input-row .input-comic {
+  flex: 1;
+  text-align: right;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.auction-input-unit {
+  font-size: 14px;
+  font-weight: 900;
+  opacity: 0.6;
+}
+
+.auction-reveal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 8px;
+  background: #fffef0;
+  border: 2.5px solid var(--ink);
+  border-radius: 8px;
+}
+
+.auction-reveal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  border-bottom: 1.5px dashed rgba(26, 26, 26, 0.2);
+}
+
+.auction-reveal-row:last-child {
+  border-bottom: none;
+}
+
+.auction-reveal-name {
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.auction-reveal-amt {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--pop-blue);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 彩票 ===== */
+.lottery-info { font-size: 13px; font-weight: 900; margin: 8px 0; }
+.lottery-buy { width: 100%; }
+.lottery-numbers {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 3px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+.lot-num {
+  aspect-ratio: 1;
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  background: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform 0.1s;
+  font-family: inherit;
+}
+.lot-num:hover:not(:disabled) { transform: scale(1.15); background: #fff3c4; }
+.lot-num:disabled { opacity: 0.3; cursor: not-allowed; background: #ddd; }
+.lot-num--taken { background: #fecaca !important; }
+.lot-num--mine { background: #86efac !important; border-width: 2.5px; }
+.lottery-my { font-size: 12px; font-weight: 900; padding: 6px 0; }
+
+/* ===== 交易预览 ===== */
+.trade-preview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+}
+.trade-preview__col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: #fffef0;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+}
+.trade-preview__label {
+  font-size: 12px;
+  font-weight: 900;
+  opacity: 0.6;
+}
+.trade-preview__item {
+  font-size: 13px;
+  font-weight: 900;
+}
+.trade-preview__item--empty {
+  opacity: 0.3;
+  font-style: italic;
 }
 
 @media (max-width: 860px) {

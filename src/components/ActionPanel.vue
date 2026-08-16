@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import ComicIcon from './ComicIcon.vue'
-import { TILES, VEHICLES, isMetro } from '../game/index.js'
+import { TILES, VEHICLES, isMetro, METRO_FEE } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
@@ -21,6 +21,20 @@ const pendingTile = computed(() => {
 const canBuy = computed(() => pendingTile.value && props.current.money >= pendingTile.value.price)
 
 const metroPending = computed(() => props.state.pending?.kind === 'metro')
+const metroFee = computed(() => METRO_FEE)
+
+// 回合阶段条：roll → landed → end
+const phaseSteps = computed(() => {
+  const phase = props.state.phase
+  const steps = [
+    { key: 'roll', label: '掷骰', done: phase !== 'roll', active: phase === 'roll' },
+    { key: 'land', label: '结算', done: phase === 'end' || phase === 'roll' && props.state.dice, active: phase === 'landed' || phase === 'fork' || phase === 'auction' },
+    { key: 'end', label: '结束', done: false, active: false },
+  ]
+  // 只有人类玩家回合才显示步骤条
+  if (!props.isMyTurn) return []
+  return steps
+})
 
 const statusText = computed(() => {
   if (props.state.status !== 'playing') return ''
@@ -42,6 +56,14 @@ const statusText = computed(() => {
 
 <template>
   <section class="actions card-comic">
+    <!-- 回合阶段条 -->
+    <div v-if="phaseSteps.length" class="phase-bar">
+      <div v-for="(s, i) in phaseSteps" :key="s.key" class="phase-bar__step" :class="{ 'phase-bar__step--done': s.done, 'phase-bar__step--active': s.active }">
+        <span class="phase-bar__dot">{{ s.done ? '✓' : (i + 1) }}</span>
+        <span class="phase-bar__label">{{ s.label }}</span>
+      </div>
+    </div>
+
     <div class="actions__status-col">
       <p class="actions__status" :class="{ 'actions__status--mine': isMyTurn }">{{ statusText }}</p>
       <p class="actions__meta">
@@ -64,7 +86,7 @@ const statusText = computed(() => {
           <button class="btn-comic btn-comic--ghost" :disabled="animating" @click="emit('dispatch', { type: 'SKIP_BUY' })">放弃</button>
         </template>
         <button v-if="metroPending" class="btn-comic btn-comic--blue" :disabled="animating" @click="emit('metro')">
-          <ComicIcon name="metro" :size="17" /> 乘轻轨 ¥150
+          <ComicIcon name="metro" :size="17" /> 乘轻轨 ¥{{ metroFee }}
         </button>
         <button class="btn-comic btn-comic--yellow" :disabled="animating" @click="emit('dispatch', { type: 'END_TURN' })">结束回合</button>
       </template>
@@ -72,15 +94,16 @@ const statusText = computed(() => {
 
     <p v-else class="actions__wait">等待电脑对手行动…</p>
 
-    <div class="legend">
-      <span class="legend__item"><i style="background:#ffffff"></i>普通地产</span>
-      <span class="legend__item"><i style="background:#22c55e"></i>景点</span>
-      <span class="legend__item"><i style="background:#0891b2"></i>轻轨站</span>
-      <span class="legend__item"><i style="background:#8b5cf6"></i>商圈</span>
-      <span class="legend__item"><i style="background:#ef4444"></i>起点</span>
-      <span class="legend__item"><i style="background:#facc15"></i>事件</span>
-      <span class="legend__item"><i style="background:#f59e0b"></i>奖励格</span>
-    </div>
+      <div class="legend">
+        <span class="legend__item"><i style="background:#ffffff"></i>普通地产</span>
+        <span class="legend__item"><i style="background:#22c55e"></i>景点</span>
+        <span class="legend__item"><i style="background:#0891b2"></i>轻轨站</span>
+        <span class="legend__item"><i style="background:#8b5cf6"></i>商圈</span>
+        <span class="legend__item"><i style="background:#a855f7"></i>神仙</span>
+        <span class="legend__item"><i style="background:#f97316"></i>彩票</span>
+        <span class="legend__item"><i style="background:#ef4444"></i>起点</span>
+        <span class="legend__item"><i style="background:#facc15"></i>事件</span>
+      </div>
   </section>
 </template>
 
@@ -91,6 +114,84 @@ const statusText = computed(() => {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+/* ===== 回合阶段条 ===== */
+.phase-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  padding-bottom: 8px;
+  border-bottom: 2px dashed var(--ink);
+  margin-bottom: 4px;
+}
+
+.phase-bar__step {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  position: relative;
+  opacity: 0.4;
+}
+
+.phase-bar__step--active {
+  opacity: 1;
+}
+.phase-bar__step--done {
+  opacity: 0.7;
+}
+
+.phase-bar__step:not(:last-child)::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  background: var(--ink);
+  margin: 0 6px;
+}
+
+.phase-bar__step--done:not(:last-child)::after {
+  background: #22c55e;
+}
+
+.phase-bar__dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.phase-bar__step--active .phase-bar__dot {
+  background: var(--pop-yellow);
+  animation: phase-pulse 1s ease-in-out infinite;
+}
+
+.phase-bar__step--done .phase-bar__dot {
+  background: #22c55e;
+  color: #fff;
+}
+
+.phase-bar__label {
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.phase-bar__step--active .phase-bar__label {
+  color: var(--pop-red);
+}
+
+@keyframes phase-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
 }
 
 .actions__status {

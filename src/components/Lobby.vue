@@ -1,0 +1,294 @@
+<script setup>
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { getSocket } from '../net/socket.js'
+import { PLAYER_COLORS } from '../game/index.js'
+
+const props = defineProps({
+  mode: String, // 'create' | 'join'
+})
+const emit = defineEmits(['enter', 'back'])
+
+const connected = ref(false)
+const playerName = ref('')
+const playerColor = ref(PLAYER_COLORS[0])
+const roomId = ref('')
+const room = ref(null)
+const error = ref('')
+
+// 使用 App 级 socket（不自己 connect/disconnect）
+const sock = computed(() => getSocket())
+
+const isHost = computed(() => room.value?.hostId && sock.value && room.value.hostId === sock.value.id)
+const allReady = computed(() => room.value?.players?.length >= 2 && room.value.players.every(p => p.ready))
+const isJoinMode = computed(() => props.mode === 'join')
+
+// 已被占用的颜色
+const usedColors = computed(() => room.value?.players?.map(p => p.color) || [])
+
+onMounted(() => {
+  const s = sock.value
+  if (!s) return
+  connected.value = s.connected
+  s.on('connect', () => { connected.value = true })
+  s.on('disconnect', () => { connected.value = false })
+  s.on('roomUpdate', (r) => {
+    room.value = r
+    // 颜色被抢了自动换
+    if (playerColor.value && usedColors.value.includes(playerColor.value)) {
+      const avail = PLAYER_COLORS.filter(c => !usedColors.value.includes(c))
+      if (avail.length > 0) playerColor.value = avail[0]
+    }
+  })
+  s.on('gameStart', () => {
+    emit('enter', { roomId: room.value.roomId, gameState: room.value.gameState })
+  })
+})
+
+onBeforeUnmount(() => {
+  const s = sock.value
+  if (s) {
+    s.off('connect')
+    s.off('disconnect')
+    s.off('roomUpdate')
+    s.off('gameStart')
+  }
+})
+
+function createRoom() {
+  if (!playerName.value.trim()) { error.value = '请输入昵称'; return }
+  error.value = ''
+  sock.value.emit('createRoom', {
+    playerName: playerName.value.trim(),
+    color: playerColor.value,
+  }, (res) => {
+    if (res?.error) { error.value = res.error; return }
+  })
+}
+
+function joinRoom() {
+  if (!playerName.value.trim()) { error.value = '请输入昵称'; return }
+  if (!roomId.value.trim()) { error.value = '请输入房间码'; return }
+  error.value = ''
+  sock.value.emit('joinRoom', {
+    roomId: roomId.value.trim().toUpperCase(),
+    playerName: playerName.value.trim(),
+    color: playerColor.value,
+  }, (res) => {
+    if (res?.error) { error.value = res.error; return }
+  })
+}
+
+function startGame() {
+  sock.value.emit('startGame', (res) => {
+    if (res?.error) error.value = res.error
+  })
+}
+
+function leaveRoom() {
+  emit('back')
+}
+</script>
+
+<template>
+  <div class="lobby">
+    <!-- 未连接 -->
+    <div v-if="!connected" class="card-comic lobby__card">
+      <p class="lobby__connecting">连接服务器...</p>
+    </div>
+
+    <!-- 首页：输昵称+操作 -->
+    <div v-else-if="!room" class="card-comic card-comic--pad-lg lobby__card">
+      <h2 class="comic-title comic-title--md">
+        {{ isJoinMode ? '加入房间' : '创建房间' }}
+      </h2>
+
+      <div class="lobby__field">
+        <span class="lobby__label">昵称</span>
+        <input v-model="playerName" class="input-comic" placeholder="输入名字" maxlength="8" />
+      </div>
+
+      <div class="lobby__field">
+        <span class="lobby__label">颜色</span>
+        <div class="lobby__colors">
+          <button
+            v-for="c in PLAYER_COLORS"
+            :key="c"
+            class="lobby__color-btn"
+            :class="{
+              'lobby__color-btn--on': playerColor === c,
+              'lobby__color-btn--used': usedColors.includes(c) && playerColor !== c
+            }"
+            :style="{ background: c }"
+            :disabled="usedColors.includes(c) && playerColor !== c"
+            @click="playerColor = c"
+          ></button>
+        </div>
+      </div>
+
+      <div v-if="isJoinMode" class="lobby__field">
+        <span class="lobby__label">房间码</span>
+        <input v-model="roomId" class="input-comic input-comic--code" placeholder="如 ABC123" maxlength="6" />
+      </div>
+
+      <div class="lobby__btns">
+        <button v-if="isJoinMode" class="btn-comic btn-comic--green" :disabled="!playerName.trim() || !roomId.trim()" @click="joinRoom">
+          加入
+        </button>
+        <button v-else class="btn-comic btn-comic--blue" :disabled="!playerName.trim()" @click="createRoom">
+          创建
+        </button>
+        <button class="btn-comic btn-comic--ghost" @click="emit('back')">返回</button>
+      </div>
+
+      <p v-if="error" class="lobby__error">{{ error }}</p>
+    </div>
+
+    <!-- 房间大厅 -->
+    <div v-else class="card-comic card-comic--pad-lg lobby__card">
+      <div class="lobby__room-code">
+        <span class="lobby__code-label">房间码</span>
+        <span class="lobby__code-value">{{ room.roomId }}</span>
+      </div>
+
+      <div class="lobby__players">
+        <div v-for="p in room.players" :key="p.id" class="lobby__player">
+          <i class="lobby__dot" :style="{ background: p.color || 'var(--pop-blue)' }"></i>
+          <span>{{ p.name }}</span>
+          <span v-if="p.isHost" class="tag-comic tag-comic--red lobby__host-tag">房主</span>
+          <span v-if="p.ready" class="tag-comic tag-comic--green">已准备</span>
+        </div>
+        <p v-if="room.players.length < 8" class="lobby__empty">等待玩家加入... ({{ room.players.length }}/8)</p>
+      </div>
+
+      <div class="lobby__btns">
+        <button v-if="isHost" class="btn-comic btn-comic--lg" :disabled="!allReady" @click="startGame">
+          {{ allReady ? '开始游戏' : '等待玩家加入...' }}
+        </button>
+        <span v-else class="lobby__waiting">等待房主开始...</span>
+        <button class="btn-comic btn-comic--ghost" @click="leaveRoom">离开</button>
+      </div>
+
+      <p v-if="error" class="lobby__error">{{ error }}</p>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.lobby {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+.lobby__card {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.lobby__connecting {
+  text-align: center;
+  font-size: 14px;
+  font-weight: 900;
+  opacity: 0.6;
+  padding: 20px;
+}
+.lobby__field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.lobby__label {
+  font-size: 14px;
+  font-weight: 900;
+  width: 50px;
+  flex-shrink: 0;
+}
+.input-comic--code {
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  font-weight: 900;
+}
+.lobby__btns {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.lobby__error {
+  color: var(--pop-red);
+  font-size: 13px;
+  font-weight: 900;
+  margin: 0;
+}
+.lobby__room-code {
+  text-align: center;
+  padding: 16px;
+  background: #fff3c4;
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+}
+.lobby__code-label {
+  font-size: 12px;
+  font-weight: 900;
+  opacity: 0.6;
+  display: block;
+  margin-bottom: 4px;
+}
+.lobby__code-value {
+  font-size: 36px;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+}
+.lobby__players {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lobby__player {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: #fff;
+  font-weight: 900;
+  font-size: 15px;
+}
+.lobby__dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--pop-blue);
+  border: 2px solid var(--ink);
+  flex-shrink: 0;
+}
+.lobby__host-tag { font-size: 10px; }
+.lobby__colors { display: flex; gap: 6px; flex-wrap: wrap; }
+.lobby__color-btn {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  border: 3px solid var(--ink);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.lobby__color-btn:hover:not(:disabled) { transform: scale(1.15); }
+.lobby__color-btn--on { box-shadow: 0 0 0 3px var(--pop-yellow); transform: scale(1.1); }
+.lobby__color-btn--used { opacity: 0.25; cursor: not-allowed; border-color: #999; }
+.lobby__empty {
+  font-size: 12px;
+  font-weight: 900;
+  opacity: 0.4;
+  text-align: center;
+  margin: 0;
+}
+.lobby__waiting {
+  font-size: 14px;
+  font-weight: 900;
+  opacity: 0.6;
+  font-style: italic;
+}
+</style>

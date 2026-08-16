@@ -25,14 +25,6 @@ const props = defineProps({
       <circle cx="8" cy="18" r="1.4" fill="#1a1a1a" />
     </g>
 
-    <!-- 道具箱 -->
-    <g v-else-if="name === 'box'">
-      <rect x="3" y="8.5" width="18" height="11" rx="2" fill="#f59e0b" stroke="#1a1a1a" stroke-width="2" />
-      <path d="M3 10.5 L12 14.5 L21 10.5" stroke="#1a1a1a" stroke-width="2" fill="#fbbf24" stroke-linejoin="round" />
-      <path d="M12 8.5 V14.5" stroke="#1a1a1a" stroke-width="2" />
-      <path d="M6.5 6.5 H17.5" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" />
-    </g>
-
     <!-- 地产（小房子） -->
     <g v-else-if="name === 'home'">
       <path d="M3.5 11 L12 4 L20.5 11" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round" fill="#3b82f6" />
@@ -90,39 +82,6 @@ const props = defineProps({
       <rect x="6" y="3" width="12" height="9" rx="1.5" fill="#facc15" stroke="#1a1a1a" stroke-width="2" transform="rotate(-8 12 7.5)" />
       <text x="12" y="10.4" text-anchor="middle" font-size="9" font-weight="900" fill="#1a1a1a" transform="rotate(-8 12 7.5)">!</text>
       <rect x="10.5" y="10" width="3" height="11" rx="1" fill="#ef4444" stroke="#1a1a1a" stroke-width="1.8" />
-    </g>
-
-    <!-- 路障 -->
-    <g v-else-if="name === 'barrier'">
-      <rect x="5" y="5" width="14" height="8" rx="1" fill="#ef4444" stroke="#1a1a1a" stroke-width="2" />
-      <rect x="7" y="5.8" width="10" height="1.6" fill="#fff" />
-      <rect x="7" y="9" width="10" height="1.6" fill="#fff" />
-      <path d="M9 13 V20 M15 13 V20" stroke="#1a1a1a" stroke-width="2.2" stroke-linecap="round" />
-      <path d="M5.5 20 H18.5" stroke="#1a1a1a" stroke-width="2.2" stroke-linecap="round" />
-    </g>
-
-    <!-- 地雷 -->
-    <g v-else-if="name === 'mine'">
-      <circle cx="12" cy="14" r="6" fill="#1a1a1a" />
-      <circle cx="12" cy="14" r="3.4" fill="#facc15" stroke="#1a1a1a" stroke-width="1.6" />
-      <path d="M12 2 V5 M6 4 L8 6.5 M18 4 L16 6.5 M3.5 9 L6 10.5 M20.5 9 L18 10.5" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" />
-      <path d="M12 5.5 V8" stroke="#facc15" stroke-width="1.4" stroke-linecap="round" />
-    </g>
-
-    <!-- 定时炸弹 -->
-    <g v-else-if="name === 'bomb'">
-      <circle cx="10" cy="13.5" r="7" fill="#1a1a1a" />
-      <circle cx="10" cy="13.5" r="5.4" fill="#ef4444" stroke="#1a1a1a" stroke-width="1.6" />
-      <circle cx="10" cy="13.5" r="2.2" fill="#facc15" stroke="#1a1a1a" stroke-width="1.4" />
-      <path d="M13.5 8 L16 4.5 M16 4.5 H18 M16 4.5 L18 6.5" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-      <circle cx="18.5" cy="4" r="1.6" fill="#facc15" stroke="#1a1a1a" stroke-width="1.6" />
-    </g>
-
-    <!-- 传送门 -->
-    <g v-else-if="name === 'portal'">
-      <ellipse cx="12" cy="12" rx="5" ry="8.5" fill="none" stroke="#1a1a1a" stroke-width="2.4" />
-      <path d="M9 5.5 Q12 12 9 18.5 M15 5.5 Q12 12 15 18.5" stroke="#1a1a1a" stroke-width="1.6" fill="none" />
-      <path d="M10.6 2.5 H13.4" stroke="#1a1a1a" stroke-width="2.2" stroke-linecap="round" />
     </g>
 
     <!-- 自行车 -->
@@ -305,6 +264,14 @@ const props = defineProps({
       <circle cx="12" cy="12" r="4.6" fill="none" stroke="#1a1a1a" stroke-width="2" />
       <circle cx="12" cy="12" r="1.8" fill="#ef4444" />
       <path d="M12 1.5 V5 M12 19 V22.5 M1.5 12 H5 M19 12 H22.5" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" />
+    </g>
+
+    <!-- 百科全书（书本） -->
+    <g v-else-if="name === 'book'">
+      <path d="M4 5 Q12 3 20 5 V19 Q12 17 4 19 Z" fill="#a855f7" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round" />
+      <path d="M12 3 V19" stroke="#1a1a1a" stroke-width="1.8" />
+      <path d="M7 8 H11 M7 11 H11 M7 14 H10" stroke="#fff" stroke-width="1.4" stroke-linecap="round" opacity="0.6" />
+      <path d="M13 8 H17 M13 11 H17 M13 14 H16" stroke="#fff" stroke-width="1.4" stroke-linecap="round" opacity="0.6" />
     </g>
 
     <!-- 未知兜底 -->

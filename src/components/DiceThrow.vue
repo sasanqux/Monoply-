@@ -74,19 +74,23 @@ let thrown = false
 function boardRect() {
   return props.boardEl?.getBoundingClientRect?.() || null
 }
-// 初始位置：紧贴棋盘（地图）正下方居中偏右，跟游戏界面一体
-// 注意：棋盘可能比一屏还高（固定 1000px 宽时高约 850px），必须把位置钳制在可视区内，
-// 否则 b.bottom 会落在屏幕下方之外，骰子被顶出可视区看不到
+// 操作面板锚点（下方 UI 信息框）：骰子固定在面板正中间，像界面的一部分
+function anchorRect() {
+  return props.anchorEl?.getBoundingClientRect?.() || null
+}
+// 初始位置：操作面板（ActionPanel）右侧内部；用视口坐标 + fixed，滚动页面不移动
 function homePos() {
   const w = pairWidth(dieCount.value)
-  const b = boardRect()
+  const a = anchorRect()
   const vw = window.innerWidth
   const vh = window.innerHeight
-  if (b) {
-    const x = Math.max(12, Math.min(b.left + b.width * 0.6 - w / 2, vw - w - 12))
-    const y = Math.min(b.bottom + 12, vh - 70)
+  if (a && a.width > 0) {
+    // 紧贴面板右内侧（留 8px 边距），垂直居中偏上（避开底部图例区域）
+    const x = Math.max(12, Math.min(a.right - w - 8, vw - w - 12))
+    const y = Math.max(8, Math.min(a.top + 28, vh - 70))
     return { x, y }
   }
+  // 无锚点回退：视口底部居中
   return { x: vw / 2 - w / 2, y: vh - 90 }
 }
 
@@ -173,15 +177,10 @@ function launch(fromX, fromY) {
 
   const b = boardRect()
   if (!b) return
-  const speed = Math.hypot(velocity.x, velocity.y)
-  const dirX = velocity.x / (speed || 1)
-  const dirY = velocity.y / (speed || 1)
-  const spread = Math.min(110, speed * 0.6)
+  // 落点：棋盘水平中偏右，垂直中偏下（不遮挡棋子格）
   const w = pairWidth(dieCount.value)
-  let tx = b.left + b.width / 2 + dirX * spread
-  let ty = b.top + b.height / 2 + dirY * spread * 0.6
-  tx = Math.max(b.left + 16, Math.min(b.right - w - 16, tx))
-  ty = Math.max(b.top + 16, Math.min(b.bottom - DIE - 16, ty))
+  const tx = Math.max(b.left + 20, Math.min(b.right - w - 20, b.left + b.width * 0.55 - w / 2))
+  const ty = Math.max(b.top + b.height * 0.55, Math.min(b.bottom - DIE - 20, b.top + b.height * 0.72))
 
   const sx = fromX - w / 2
   const sy = fromY - DIE / 2

@@ -1,9 +1,9 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import ComicIcon from './ComicIcon.vue'
 import {
   TILES, GROUPS, SHOPS, isPropertyTile, isMetro,
-  getRent, isGroupComplete, groupTiles, upgradeCost,
+  getRent, isGroupComplete, groupTiles, groupRequired, upgradeCost,
   METRO_FEE,
 } from '../game/index.js'
 
@@ -11,7 +11,7 @@ const props = defineProps({
   state: Object,
   tileId: Number,
 })
-const emit = defineEmits(['close', 'upgrade'])
+const emit = defineEmits(['close', 'upgrade', 'metro'])
 
 const tile = computed(() => TILES[props.tileId])
 
@@ -23,8 +23,7 @@ const typeTag = computed(() => {
     case 'scenic': return { text: '景点', cls: 'tag-comic--green' }
     case 'station': return { text: '轻轨站', cls: 'tag-comic--yellow' }
     case 'mall': return { text: '商圈', cls: 'tag-comic--purple' }
-    case 'corner': return { text: '奖励格', cls: 'tag-comic--yellow' }
-    case 'event': return { text: '事件', cls: 'tag-comic--green' }
+    case 'chance': return { text: '事件', cls: 'tag-comic--green' }
     default: return { text: t.type, cls: 'tag-comic--ink' }
   }
 })
@@ -54,6 +53,7 @@ const groupInfo = computed(() => {
     name: GROUPS[t.group].name,
     owned,
     total: tiles.length,
+    need: groupRequired(t.group),
     complete: isGroupComplete(props.state, t.group),
   }
 })
@@ -69,8 +69,8 @@ const metroInfo = computed(() => {
 
 const eventDesc = computed(() => {
   const t = tile.value
-  if (t.type !== 'event') return null
-  return t.id === 42 ? '吃火锅：可能破财、可能赚代言费' : '随机事件：抽卡、捡道具、丢载具、发笔小财'
+  if (t.type !== 'chance') return null
+  return '随机事件：抽卡、丢载具、发笔小财'
 })
 
 const canUpgrade = computed(() => {
@@ -81,6 +81,24 @@ const canUpgrade = computed(() => {
   if (t.type === 'metro' && !t.upgradable) return false
   return level.value < 3
 })
+
+// 乘轻轨：当前玩家是否正站在这格（是 → 可乘）
+const meOnStation = computed(() => {
+  if (!isMetro(tile.value)) return false
+  const cur = props.state.players[props.state.turnIndex]
+  return !!cur && cur.pos === props.tileId
+})
+const hint = ref('')
+let hintTimer = null
+function onMetroClick() {
+  if (meOnStation.value) {
+    emit('metro')
+    return
+  }
+  hint.value = '目前不在轻轨地块，无法乘坐'
+  clearTimeout(hintTimer)
+  hintTimer = setTimeout(() => { hint.value = '' }, 2200)
+}
 </script>
 
 <template>
@@ -116,26 +134,26 @@ const canUpgrade = computed(() => {
         <div v-if="owner" class="info__row">
           <span class="info__label">当前租金</span>
           <span class="info__val info__val--hot">¥{{ currentRent }}</span>
-          <span v-if="level > 0" class="info__hint">（<ComicIcon :name="SHOPS[level].icon" :size="13" /> 等级 {{ level }}）</span>
+          <span v-if="level > 0" class="info__hint">（等级 {{ level }}）</span>
           <span v-else class="info__hint">（空地）</span>
         </div>
         <div v-if="owner" class="info__row">
           <span class="info__label">店铺</span>
           <span class="info__val">
-            <ComicIcon v-if="SHOPS[level].icon" :name="SHOPS[level].icon" :size="15" /> {{ SHOPS[level].name }}
-            <span v-if="level < 3" class="info__hint">→ <ComicIcon :name="SHOPS[level + 1].icon" :size="13" /> 升级费 ¥{{ upgradeCost(tile) }}</span>
+            {{ SHOPS[level].name }}
+            <span v-if="level < 3" class="info__hint">→ 升级费 ¥{{ upgradeCost(tile) }}</span>
           </span>
         </div>
       </template>
 
-      <!-- 商圈 -->
+      <!-- 商圈组合 -->
       <div v-if="groupInfo" class="info__row">
-        <span class="info__label">商圈</span>
+        <span class="info__label">组合</span>
         <span class="info__val">
           {{ groupInfo.name }}
-          <span class="info__hint">（本组 {{ groupInfo.owned }}/{{ groupInfo.total }} 块）</span>
-          <span v-if="groupInfo.complete" class="tag-comic tag-comic--red">集齐 · 租金×2</span>
-          <span v-else class="info__hint">集齐全组租金翻倍</span>
+          <span class="info__hint">（本组已收 {{ groupInfo.owned }}/{{ groupInfo.total }} 块，达成需 {{ groupInfo.need }} 块）</span>
+          <span v-if="groupInfo.complete" class="tag-comic tag-comic--red">达成 · 租金×1.5</span>
+          <span v-else class="info__hint">达成后本组租金 ×1.5</span>
         </span>
       </div>
 
@@ -149,12 +167,18 @@ const canUpgrade = computed(() => {
           <span class="info__label">使用费</span>
           <span class="info__val">¥{{ tile.rent }}（他人使用支付）</span>
         </div>
+        <div class="info__row info__row--metro">
+          <button class="btn-comic btn-comic--sm btn-comic--blue" @click="onMetroClick">
+            <ComicIcon name="metro" :size="14" /> 乘轻轨
+          </button>
+          <span v-if="hint" class="info__hint info__hint--warn">{{ hint }}</span>
+        </div>
         <p v-if="metroInfo.upgradable" class="info__tip"><ComicIcon name="metro" :size="13" /> 李子坝 = 轻轨站 + 地标地产，可开店升级</p>
       </template>
 
       <!-- 事件 / 起点 -->
       <p v-if="eventDesc" class="info__tip"><ComicIcon name="dice" :size="13" /> {{ eventDesc }}</p>
-      <p v-if="tile.type === 'start'" class="info__tip"><ComicIcon name="flag" :size="13" /> 每绕城一圈经过朝天门，领取工资 ¥300</p>
+      <p v-if="tile.type === 'start'" class="info__tip"><ComicIcon name="flag" :size="13" /> 到达朝天门打卡，累计满 3 次领取大礼包（¥5000 + 3 张随机卡 + 免费传送）</p>
 
       <div class="info__btns">
         <button v-if="canUpgrade" class="btn-comic btn-comic--sm" @click="emit('upgrade', tile.id)">
@@ -181,6 +205,8 @@ const canUpgrade = computed(() => {
 .info {
   width: 100%;
   max-width: 400px;
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -269,6 +295,16 @@ const canUpgrade = computed(() => {
   font-size: 11px;
   font-weight: 900;
   opacity: 0.6;
+}
+
+.info__hint--warn {
+  opacity: 1;
+  color: var(--pop-red);
+  font-weight: 900;
+  background: #fff0f0;
+  border: 2px solid var(--pop-red);
+  border-radius: 6px;
+  padding: 3px 8px;
 }
 
 .info__tip {
