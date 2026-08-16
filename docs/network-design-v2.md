@@ -395,7 +395,9 @@ P0（地基）→ Phase 1（后端）→ Phase 2（大厅）→ Phase 3（同步
 
 ---
 
-## 十一、审查修订记录（v3.1 · 2026-08-16）
+## 十一、审查修订记录
+
+### v3.1 · 2026-08-16（第一次审查）
 
 ### 审查发现的 🔴 P0 问题（已修复）
 
@@ -414,12 +416,14 @@ P0（地基）→ Phase 1（后端）→ Phase 2（大厅）→ Phase 3（同步
 | 6 | broadcastRoom 每人一份深拷贝 | Phase 3 优化：先 clone 一次 base，再微调 hand |
 | 7 | findRoomBySocket 是 O(N) | 维护 socketToRoom 反向索引 |
 
-### 当前进度
+### 当前进度（v3.4 更新）
 
 - ✅ P0-1：5 处直调改走 dispatch
-- ✅ Phase 1：后端基础（服务器跑起来）
-- ✅ Phase 2：前端大厅（Home/ModeSelect/Lobby）+ 颜色选择
-- ⏳ P0-2：isMyTurn 改成 myPlayerId
-- ✅ Phase 3：游戏同步（掷骰算完整路径+广播一次）
-- ⏳ Phase 4：聊天
-- ⏳ Phase 5：上线
+- ✅ P0-2：isMyTurn 改成基于 myPlayerId
+- ✅ P0-3：盲拍脱敏（broadcastGameState 隐藏 bids）
+- ✅ Phase 1：后端基础（Express+Socket.IO+静态文件服务）
+- ✅ Phase 2：首页+大厅（Home/ModeSelect/Lobby/SetupPanel 颜色选择）
+- ✅ Phase 3：游戏同步（handleRollDice 算完整路径+广播一次）
+- ✅ Phase 4：聊天（SidePanel 接入 socket）
+- ✅ 游戏结束清理：60s 后 rooms.delete
+- ⏳ Phase 5：Cloudflare Tunnel 上线

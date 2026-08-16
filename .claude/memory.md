@@ -1,14 +1,13 @@
 # 项目记忆
 
 <!-- AUTO_START -->
-> 自动更新于 2026-08-16 09:56（本次会话 1698 条用户消息）
+> 自动更新于 2026-08-16 10:00（本次会话 1712 条用户消息）
 
 ## 最近任务
-- 73:export function leaveRoom(socketId) { 89: rooms.delete(roomId);
-- dist/assets/index-M837X5XB.css 65.83 kB │ gzip: 12.35 kB dist/assets/index-slGschdZ.js 299.57 kB │ gzip: 100.31 kB ✓ built in 2.74s 结果：143 通过 / 0 失败
-- Microsoft Windows [�汾 10.0.22631.6199] (c) Microsoft Corporation����������Ȩ���� C:\Users\zhm\Desktop\TOD\projects\monopoly>node:events:487 throw er; /
-- TCP 0.0.0.0:8080 0.0.0.0:0 LISTENING 20688 TCP [::]:8080 [::]:0 LISTENING 20688
-- 🎮 重庆大富翁服务器: http://localhost:8080 {"ok":true,"rooms":0}
+- The file C:\Users\zhm\Desktop\TOD\设计方案\重庆大富翁设计方案\大富翁设计方案.md has been updated successfully.
+- 634:*下一步（v3.3 更新）：M4 联机基础架构已搭建，但大厅 UI 显示有 bug 需修复。待修复完成后继续：断线重连 + AI 托管 → 聊天功能 → Cloudflare Tunnel 上线。*
+- warning: in the working copy of '.claude/memory.md', LF will be replaced by CRLF the next time Git touches it warning: in the working copy of 'server/
+- [main 4fa1cb8] fix: 游戏结束房间清理 + 设计文档更新 3 files changed, 37 insertions(+), 14 deletions(-)
 
 ## 修改的文件
 - `C:\Users\zhm\Desktop\TOD\projects\monopoly\src\game\turn.js`
