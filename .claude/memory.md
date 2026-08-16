@@ -1,13 +1,13 @@
 # 项目记忆
 
 <!-- AUTO_START -->
-> 自动更新于 2026-08-16 09:30（本次会话 1642 条用户消息）
+> 自动更新于 2026-08-16 09:47（本次会话 1676 条用户消息）
 
 ## 最近任务
-- <tool_use_error>String to replace not found in file. String: ## 三、关键避坑 | 坑 | 解决方案 | |----|---------| | 端口被占用 | 用高位端口（如 8888）+ 启动前先 taskkill |</tool_us
-- 370 371 --- 372 373 ## 九、验收标准 374 375 - [ ] P0：5 处直调改走 dispatch，isMyTurn 用 myPlayerId 376 - [ ] Phase 1：服务器启动，浏览器能访问静态页面 377 - [ ] Phase 2：2-8 人可通过房间码
-- 385 386 ## 十、推进顺序 387 388 ``` 389 P0（地基）→ Phase 1（后端）→ Phase 2（大厅）→ Phase 3（同步）→ Phase 4（聊天）→ Phase 5（上线） 390 ``` 391 392 **绝不跳步**。每完成一个阶段验证通过了再开下一个。 
-- The file C:\Users\zhm\Desktop\TOD\projects\monopoly\docs\network-design-v2.md has been updated successfully.
+- The file C:\Users\zhm\Desktop\TOD\projects\monopoly\server\rooms.js has been updated successfully.
+- dist/assets/index-DOqKBgCz.css 65.83 kB │ gzip: 12.35 kB dist/assets/index-B5q8N6QU.js 299.47 kB │ gzip: 100.00 kB ✓ built in 2.30s
+- Microsoft Windows [�汾 10.0.22631.6199] (c) Microsoft Corporation����������Ȩ���� C:\Users\zhm\Desktop\TOD\projects\monopoly>node:events:487 throw er; /
+- 结果：143 通过 / 0 失败
 
 ## 修改的文件
 - `C:\Users\zhm\Desktop\TOD\projects\monopoly\src\game\turn.js`

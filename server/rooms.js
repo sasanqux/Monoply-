@@ -108,9 +108,14 @@ export function startGame(socketId) {
   if (room.hostId !== socketId) return { error: '你不是房主' };
   if (room.players.length < 2) return { error: '至少需要 2 名玩家' };
 
-  // 用真实玩家数据创建初始状态
+  // 用真实玩家数据创建初始状态（含玩家选择的颜色）
   room.gameState = createInitialState({
-    players: room.players.map(p => ({ id: p.id, name: p.name, isAI: false })),
+    players: room.players.map((p, i) => ({
+      id: p.id,
+      name: p.name,
+      isAI: false,
+      color: p.color, // 保留玩家自选颜色
+    })),
     maxTurns: room.settings.maxTurns,
     startMoney: room.settings.startMoney,
   });
@@ -127,9 +132,38 @@ export function handleAction(socketId, action) {
   const player = room.players.find(p => p.socketId === socketId);
   if (!player || player.id !== cur.id) return { error: '还没轮到你' };
 
-  // 执行 action
+  if (action.type === 'ROLL_DICE') {
+    // 掷骰：一次性算完整个移动（含分岔路径）
+    return handleRollDice(room, player);
+  }
+
+  // 其他 action 直接执行
   room.gameState = gameReducer(room.gameState, action);
   return { ok: true, room, gameState: room.gameState };
+}
+
+function handleRollDice(room, player) {
+  // 1. 掷骰
+  room.gameState = gameReducer(room.gameState, { type: 'ROLL_DICE' });
+
+  const dice = room.gameState.dice;
+  const totalSteps = room.gameState.stepsRemaining;
+  const me = room.gameState.players.find(p => p.id === player.id); // 缓存引用
+
+  // 2. 循环 STEP 直到走完或遇到分岔
+  let path = [];
+  let guard = 0;
+  while (room.gameState.phase === 'step' && room.gameState.stepsRemaining > 0 && guard++ < 100) {
+    room.gameState = gameReducer(room.gameState, { type: 'STEP' });
+    path.push(me.pos); // 直接读缓存的引用
+  }
+
+  return {
+    ok: true,
+    room,
+    gameState: room.gameState,
+    moveInfo: { dice, steps: totalSteps, path },
+  };
 }
 
 export function addChat(socketId, text) {

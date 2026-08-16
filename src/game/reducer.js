@@ -84,7 +84,7 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
     id: pl.id,
     name: pl.name,
     isAI: !!pl.isAI,
-    color: PLAYER_COLORS[i % PLAYER_COLORS.length],
+    color: pl.color || PLAYER_COLORS[i % PLAYER_COLORS.length],
     money: startMoney,
     pos: 1, // 起点 = 朝天门 (id 1)
     properties: [],

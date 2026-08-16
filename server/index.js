@@ -60,7 +60,7 @@ function broadcastRoom(room) {
 }
 
 // 广播游戏状态（拍卖脱敏）
-function broadcastGameState(room) {
+function broadcastGameState(room, moveInfo = null) {
   for (const p of room.players) {
     if (!p.socketId) continue;
     const gs = room.gameState;
@@ -71,7 +71,12 @@ function broadcastGameState(room) {
       stateToSend = { ...gs, pending: { ...gs.pending, bids: {} } };
     }
 
-    io.to(p.socketId).emit('gameState', { state: stateToSend });
+    io.to(p.socketId).emit('gameState', {
+      state: stateToSend,
+      currentPlayerId: gs?.players[gs.turnIndex]?.id ?? null,
+      myPlayerId: p.id,
+      moveInfo, // 掷骰时为 { dice, steps, path }，其他时候 null
+    });
   }
 }
 
@@ -137,8 +142,8 @@ io.on('connection', (socket) => {
         if (cb) cb({ error: result.error });
         return;
       }
-      broadcastGameState(result.room);
-      if (cb) cb({ ok: true });
+      broadcastGameState(result.room, result.moveInfo);
+      if (cb) cb({ ok: true, moveInfo: result.moveInfo });
     } catch (e) {
       console.error('[action] error:', e);
       if (cb) cb({ error: e.message });

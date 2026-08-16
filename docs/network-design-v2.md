@@ -373,11 +373,11 @@ function dispatch(action) {
 ## 九、验收标准
 
 - [x] P0-1：5 处直调改走 dispatch ✅
-- [ ] P0-2：isMyTurn 用 myPlayerId（Phase 3 前做）
+- [x] P0-2：isMyTurn 用 myPlayerId ✅
 - [x] Phase 1：服务器启动，浏览器能访问静态页面 ✅
 - [x] Phase 2：2-8 人可通过房间码加入同一房间 ✅
 - [ ] Phase 2.5：socket 冲突/监听残留修复 ✅
-- [ ] Phase 3：所有玩家看到的游戏局面完全一致
+- [x] Phase 3：掷骰一次性算完路径+广播，isMyTurn 用 myPlayerId ✅
 - [ ] Phase 4：聊天消息实时广播
 - [ ] Phase 5：公网可通过 Cloudflare Tunnel 访问
 - [ ] 房主掉线自动转房主
@@ -420,4 +420,6 @@ P0（地基）→ Phase 1（后端）→ Phase 2（大厅）→ Phase 3（同步
 - ✅ Phase 1：后端基础（服务器跑起来）
 - ✅ Phase 2：前端大厅（Home/ModeSelect/Lobby）+ 颜色选择
 - ⏳ P0-2：isMyTurn 改成 myPlayerId
-- ⏳ Phase 3：游戏同步
+- ✅ Phase 3：游戏同步（掷骰算完整路径+广播一次）
+- ⏳ Phase 4：聊天
+- ⏳ Phase 5：上线

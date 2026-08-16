@@ -129,8 +129,9 @@ function onEnterNetGame({ roomId, gameState }) {
   view.value = 'game'
   // 清理旧监听避免重复
   socket.off('gameState')
-  socket.on('gameState', ({ state: gs }) => {
+  socket.on('gameState', ({ state: gs, myPlayerId: pid }) => {
     state.value = gs
+    if (pid) myPlayerId.value = pid
   })
 }
 
@@ -314,7 +315,11 @@ function scheduleAI() {
 }
 
 const cur = computed(() => (state.value ? currentPlayer(state.value) : null))
-const isMyTurn = computed(() => cur.value && !cur.value.isAI)
+const isMyTurn = computed(() => {
+  if (!cur.value) return false
+  if (netMode.value) return cur.value.id === myPlayerId.value
+  return !cur.value.isAI
+})
 
 // 随机路线卡片：仅在轮到我、且骰子/走格动画结束（确保玩家看清）时显示；必须点右上角 ✕ 关闭
 const showForkCard = computed(() => {
