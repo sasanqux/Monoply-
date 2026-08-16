@@ -335,8 +335,108 @@ function dispatch(action) {
 
 ## 六、Phase 5：上线
 
-- Cloudflare Tunnel 内网穿透（免费，固定域名，支持 WebSocket）
-- 安装 cloudflared → `cloudflared tunnel --url http://localhost:8888`
+### 目标
+
+让朋友通过一个固定链接访问你的游戏服务器，无需公网 IP 或域名备案。
+
+### 方案：Cloudflare Tunnel（推荐）
+
+**优点**：完全免费、固定域名、支持 WebSocket、国内访问快
+**前提**：你的电脑开机 + 服务器运行
+
+#### 步骤
+
+**1. 安装 cloudflared**
+
+```bash
+# Windows（用 scoop）
+scoop install cloudflared
+
+# 或手动下载：
+# https://github.com/cloudflare/cloudflared/releases
+# 下载 cloudflared-windows-amd64.exe，重命名为 cloudflared.exe
+# 放到 PATH 路径下（如 C:\Windows\System32\）
+```
+
+**2. 启动游戏服务器**
+
+```bash
+cd TOD/projects/monopoly
+npm run start
+# 服务器在 http://localhost:8080 启动
+```
+
+**3. 启动 Cloudflare Tunnel**
+
+```bash
+# 新窗口运行
+cloudflared tunnel --url http://localhost:8080
+```
+
+**4. 获取公网链接**
+
+cloudflared 会输出类似：
+
+```
+INF +--------------------------------------------------------------------------------------------+
+INF |  Your quick Tunnel has been created! Visit it at (it may take up to 30 seconds to come up):  |
+INF |  https://xxxx-xxxx-xxxx.trycloudflare.com                                                         |
+INF +--------------------------------------------------------------------------------------------+
+```
+
+这个 `https://xxxx.trycloudflare.com` 就是公网链接，分享给好友即可。
+
+**5. 好友访问**
+
+好友打开链接 → 看到首页 → 创建/加入房间 → 玩耍
+
+### 备选方案：ngrok
+
+如果 Cloudflare Tunnel 速度慢，可用 ngrok：
+
+```bash
+# 1. 下载 ngrok：https://ngrok.com/download
+# 2. 注册免费账号获取 token
+ngrok config add-authtoken <YOUR_TOKEN>
+# 3. 启动
+ngrok http 8080
+# 得到 https://xxxx.ngrok-free.app
+```
+
+**缺点**：免费版链接每次重启会变。
+
+### 一键启动脚本
+
+创建 `Start-Online.bat`：
+
+```bat
+@echo off
+cd /d "%~dp0"
+
+echo [1/2] 构建前端...
+call npm run build
+
+echo [2/2] 启动服务器...
+start "GameServer" cmd /k "cd /d %~dp0 && node server/index.js"
+timeout /t 4 /nobreak >NUL
+
+echo [3/3] 启动 Cloudflare Tunnel...
+start "Tunnel" cmd /k "cloudflared tunnel --url http://localhost:8080"
+
+echo.
+echo 等待 cloudflared 输出公网链接...
+echo 复制链接发给好友即可！
+pause
+```
+
+### 验证清单
+
+- [ ] cloudflared 已安装（`cloudflared --version` 输出版本号）
+- [ ] 服务器启动（`http://localhost:8080/health` 返回 `{"ok":true}`）
+- [ ] cloudflared 输出 `https://xxx.trycloudflare.com` 链接
+- [ ] 用浏览器访问该链接 → 看到首页
+- [ ] 手机访问该链接 → 看到首页（测试移动端）
+- [ ] 创建房间 → 朋友加入 → 能正常对局
 
 ---
 
@@ -379,7 +479,7 @@ function dispatch(action) {
 - [ ] Phase 2.5：socket 冲突/监听残留修复 ✅
 - [x] Phase 3：掷骰一次性算完路径+广播，isMyTurn 用 myPlayerId ✅
 - [ ] Phase 4：聊天消息实时广播
-- [ ] Phase 5：公网可通过 Cloudflare Tunnel 访问
+- [ ] Phase 5：cloudflared 安装 + 启动 + 公网链接可访问 + 好友能联机对局
 - [ ] 房主掉线自动转房主
 - [ ] 拍卖盲拍不泄密
 

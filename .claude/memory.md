@@ -1,13 +1,13 @@
 # 项目记忆
 
 <!-- AUTO_START -->
-> 自动更新于 2026-08-16 10:00（本次会话 1712 条用户消息）
+> 自动更新于 2026-08-16 10:03（本次会话 1719 条用户消息）
 
 ## 最近任务
-- The file C:\Users\zhm\Desktop\TOD\设计方案\重庆大富翁设计方案\大富翁设计方案.md has been updated successfully.
-- 634:*下一步（v3.3 更新）：M4 联机基础架构已搭建，但大厅 UI 显示有 bug 需修复。待修复完成后继续：断线重连 + AI 托管 → 聊天功能 → Cloudflare Tunnel 上线。*
-- warning: in the working copy of '.claude/memory.md', LF will be replaced by CRLF the next time Git touches it warning: in the working copy of 'server/
-- [main 4fa1cb8] fix: 游戏结束房间清理 + 设计文档更新 3 files changed, 37 insertions(+), 14 deletions(-)
+- 415 | 7 | findRoomBySocket 是 O(N) | 维护 socketToRoom 反向索引 | 416 417 ### 当前进度 418 419 - ✅ P0-1：5 处直调改走 dispatch 420 - ✅ Phase 1：后端基础（服务器跑起来） 421 - ✅ Pha
+- The file C:\Users\zhm\Desktop\TOD\projects\monopoly\docs\network-design-v2.md has been updated successfully.
+- 397 398 ## 十一、审查修订记录（v3.1 · 2026-08-16） 399 400 ### 审查发现的 🔴 P0 问题（已修复） 401 402 | # | 问题 | 修复文件 | 修复方式 | 403 |---|------|---------|---------| 404 | 1 
+- warning: in the working copy of '.claude/memory.md', LF will be replaced by CRLF the next time Git touches it warning: in the working copy of 'docs/ne
 
 ## 修改的文件
 - `C:\Users\zhm\Desktop\TOD\projects\monopoly\src\game\turn.js`
