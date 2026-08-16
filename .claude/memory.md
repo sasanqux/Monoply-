@@ -1,12 +1,12 @@
 # 项目记忆
 
 <!-- AUTO_START -->
-> 自动更新于 2026-08-16 10:03（本次会话 1719 条用户消息）
+> 自动更新于 2026-08-16 10:09（本次会话 1727 条用户消息）
 
 ## 最近任务
-- 415 | 7 | findRoomBySocket 是 O(N) | 维护 socketToRoom 反向索引 | 416 417 ### 当前进度 418 419 - ✅ P0-1：5 处直调改走 dispatch 420 - ✅ Phase 1：后端基础（服务器跑起来） 421 - ✅ Pha
+- 1 # M4 联机设计方案 v3 · 2026-08-16 2 3 > 目标：2-8 人联机对局，房间码加入，服务器权威同步。 4 > 原则：先补地基（P0），再搭框架（Phase 1-2），最后同步（Phase 3）。 5 6 --- 7 8 ## 零、首页流程设计（UI/UX） 9 10 ###
 - The file C:\Users\zhm\Desktop\TOD\projects\monopoly\docs\network-design-v2.md has been updated successfully.
-- 397 398 ## 十一、审查修订记录（v3.1 · 2026-08-16） 399 400 ### 审查发现的 🔴 P0 问题（已修复） 401 402 | # | 问题 | 修复文件 | 修复方式 | 403 |---|------|---------|---------| 404 | 1 
+- Start-Online.bat 创建成功
 - warning: in the working copy of '.claude/memory.md', LF will be replaced by CRLF the next time Git touches it warning: in the working copy of 'docs/ne
 
 ## 修改的文件
