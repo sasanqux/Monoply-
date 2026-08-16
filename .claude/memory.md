@@ -1,13 +1,14 @@
 # 项目记忆
 
 <!-- AUTO_START -->
-> 自动更新于 2026-08-16 09:47（本次会话 1676 条用户消息）
+> 自动更新于 2026-08-16 09:56（本次会话 1698 条用户消息）
 
 ## 最近任务
-- The file C:\Users\zhm\Desktop\TOD\projects\monopoly\server\rooms.js has been updated successfully.
-- dist/assets/index-DOqKBgCz.css 65.83 kB │ gzip: 12.35 kB dist/assets/index-B5q8N6QU.js 299.47 kB │ gzip: 100.00 kB ✓ built in 2.30s
+- 73:export function leaveRoom(socketId) { 89: rooms.delete(roomId);
+- dist/assets/index-M837X5XB.css 65.83 kB │ gzip: 12.35 kB dist/assets/index-slGschdZ.js 299.57 kB │ gzip: 100.31 kB ✓ built in 2.74s 结果：143 通过 / 0 失败
 - Microsoft Windows [�汾 10.0.22631.6199] (c) Microsoft Corporation����������Ȩ���� C:\Users\zhm\Desktop\TOD\projects\monopoly>node:events:487 throw er; /
-- 结果：143 通过 / 0 失败
+- TCP 0.0.0.0:8080 0.0.0.0:0 LISTENING 20688 TCP [::]:8080 [::]:0 LISTENING 20688
+- 🎮 重庆大富翁服务器: http://localhost:8080 {"ok":true,"rooms":0}
 
 ## 修改的文件
 - `C:\Users\zhm\Desktop\TOD\projects\monopoly\src\game\turn.js`

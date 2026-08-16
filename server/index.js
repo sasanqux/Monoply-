@@ -75,8 +75,16 @@ function broadcastGameState(room, moveInfo = null) {
       state: stateToSend,
       currentPlayerId: gs?.players[gs.turnIndex]?.id ?? null,
       myPlayerId: p.id,
-      moveInfo, // 掷骰时为 { dice, steps, path }，其他时候 null
+      moveInfo,
     });
+  }
+
+  // 游戏结束 → 延迟清理房间（让客户端有时间显示结果）
+  if (room.gameState?.status === 'finished' && !room._cleanupTimer) {
+    room._cleanupTimer = setTimeout(() => {
+      rooms.delete(room.roomId);
+      console.log(`[cleanupRoom] ${room.roomId} (game finished)`);
+    }, 60000);
   }
 }
 

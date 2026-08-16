@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import ComicIcon from './ComicIcon.vue'
 import { TILES, VEHICLES, GROUPS, SHOPS, isPropertyTile, isBridge, isMetro, totalAssets, groupTiles, groupRequired, typeGroupInfo } from '../game/index.js'
+import { getSocket } from '../net/socket.js'
 
 const props = defineProps({
   state: Object,
@@ -77,19 +78,32 @@ watch(
   }
 )
 
+// 联机聊天：监听 socket chat 事件
+onMounted(() => {
+  const s = getSocket()
+  if (s) {
+    s.on('chat', (msg) => {
+      chatMessages.value.push({ kind: msg.from === 'system' ? 'system' : 'user', who: msg.from, text: msg.text })
+    })
+  }
+})
+
+onBeforeUnmount(() => {
+  const s = getSocket()
+  if (s) s.off('chat')
+})
+
 function sendChat() {
-  // 联机预留：目前只弹系统提示
   const text = chatDraft.value.trim()
   if (!text) return
-  chatMessages.value.push({ kind: 'system', text: '联机功能尚未上线，消息未发送。' })
+  const s = getSocket()
+  if (s) {
+    s.emit('chat', { text })  // 联机：发给服务器广播
+  } else {
+    chatMessages.value.push({ kind: 'system', text: '单机模式下无法聊天' })
+  }
   chatDraft.value = ''
 }
-
-// 供外部推送系统消息（联机时用）
-function pushSystemMessage(text) {
-  chatMessages.value.push({ kind: 'system', text })
-}
-defineExpose({ pushSystemMessage })
 
 const players = computed(() => props.state.players)
 
