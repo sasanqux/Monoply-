@@ -113,7 +113,7 @@ export const PATH_POLYLINE = (() => {
 })()
 
 export function getTile(index) { return TILES[index] }
-export function isPropertyTile(tile) { return tile && ['land','scenic','station','mall','god','lottery'].includes(tile.type) }
+export function isPropertyTile(tile) { return tile && ['land','scenic','station','mall'].includes(tile.type) }
 export function isBridge() { return false }
 export function isMetro(tile) { return tile && tile.type === 'station' }
 export function isEvent(tile) { return tile && tile.type === 'chance' }

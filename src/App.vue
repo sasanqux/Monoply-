@@ -232,7 +232,6 @@ function onDiceThrow() {
   diceRolled.value = true
   diceThrowing.value = true
   animating.value = true
-  for (const p of state.value.players) { p.walkPath = [p.pos] }
   dispatch({ type: 'ROLL_DICE' })
 }
 

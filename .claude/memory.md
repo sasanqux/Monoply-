@@ -1,13 +1,13 @@
 # 项目记忆
 
 <!-- AUTO_START -->
-> 自动更新于 2026-08-16 10:09（本次会话 1727 条用户消息）
+> 自动更新于 2026-08-16 16:36（本次会话 1749 条用户消息）
 
 ## 最近任务
-- 1 # M4 联机设计方案 v3 · 2026-08-16 2 3 > 目标：2-8 人联机对局，房间码加入，服务器权威同步。 4 > 原则：先补地基（P0），再搭框架（Phase 1-2），最后同步（Phase 3）。 5 6 --- 7 8 ## 零、首页流程设计（UI/UX） 9 10 ###
-- The file C:\Users\zhm\Desktop\TOD\projects\monopoly\docs\network-design-v2.md has been updated successfully.
-- Start-Online.bat 创建成功
-- warning: in the working copy of '.claude/memory.md', LF will be replaced by CRLF the next time Git touches it warning: in the working copy of 'docs/ne
+- The file C:\Users\zhm\Desktop\TOD\设计方案\重庆大富翁设计方案\大富翁设计方案.md has been updated successfully.
+- warning: in the working copy of '.claude/memory.md', LF will be replaced by CRLF the next time Git touches it [main 6cbcb94] docs: v3.5 M5 部署方案确定 1 fi
+- monopoly里面所有的文件都有用吗，能不能整理一下
+- ./.claude/memory.md ./.gitignore ./card-back.png ./click-start.mjs ./docs/2026-08-15-network-design.md ./docs/network-design-v2.md ./font-preview.html
 
 ## 修改的文件
 - `C:\Users\zhm\Desktop\TOD\projects\monopoly\src\game\turn.js`

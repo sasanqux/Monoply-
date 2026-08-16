@@ -39,8 +39,8 @@ onMounted(() => {
       if (avail.length > 0) playerColor.value = avail[0]
     }
   })
-  s.on('gameStart', () => {
-    emit('enter', { roomId: room.value.roomId, gameState: room.value.gameState })
+  s.on('gameStart', ({ room: r }) => {
+    emit('enter', { roomId: r.roomId, gameState: r.gameState })
   })
 })
 
@@ -85,6 +85,7 @@ function startGame() {
 }
 
 function leaveRoom() {
+  sock.value?.emit('leaveRoom')
   emit('back')
 }
 </script>

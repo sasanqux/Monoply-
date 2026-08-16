@@ -102,13 +102,6 @@ export function applyCard(state, player, card, target) {
       state.log.push(`🔨 ${player.name} 用拆除卡拆了 ${owner.name}「${tile.name}」一级（现 ${level - 1} 级）`)
       return true
     }
-    case 'frame': {
-      const them = state.players.find((p) => p.id === target?.playerId && p.alive)
-      if (!them || them.id === player.id) return false
-      them.jailLeft = 2
-      state.log.push(`⛓️ ${player.name} 用陷害卡把 ${them.name} 送进监狱！`)
-      return true
-    }
     case 'shield':
       player.shield = true
       state.log.push(`🛡️ ${player.name} 使用免罪卡，获得一次豁免（税/过桥费）`)

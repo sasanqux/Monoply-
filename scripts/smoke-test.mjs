@@ -175,7 +175,7 @@ console.log('▶ 分岔路口：CHOOSE_FORK 续走 + 链式分岔')
     return s;
   }
 
-  // 石桥铺(13) 直行 14 / 分叉 51，剩余 3 步选直行 → 14→15→16→17 落点
+  // 石桥铺(13) 直行 14 / 分叉 51，剩余 3 步选直行消耗 1 步 → 14→15→16 落点
   let s = makeState([
     { id: 'p1', name: '我', isAI: false },
     { id: 'p2', name: 'B', isAI: true },
@@ -185,16 +185,16 @@ console.log('▶ 分岔路口：CHOOSE_FORK 续走 + 链式分岔')
   s.players[0].pos = 13
   s.players[0].walkPath = [13]
   s = chooseAndWalk(s, 14)
-  check('选直行后继续走到 17（14→15→16→17）', s.players[0].pos === 17)
+  check('选直行后走到 16（14→15→16），不多走', s.players[0].pos === 16)
   check('续走后落地结算', s.phase === 'landed')
 
-  // 三峡广场(43) 直行 44 / 分叉 17、18；选 17 后剩 3 步：17→18→19(磁器口 分岔) 再暂停
+  // 三峡广场(43) 直行 44 / 分叉 17、18；选 17 后剩 4 步：17→18→19(磁器口 分岔) 再暂停
   s = makeState([
     { id: 'p1', name: '我', isAI: false },
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   s.phase = 'fork'
-  s.pending = { kind: 'fork', tileId: 43, options: [17, 18], stepsLeft: 3, cameFrom: 43, canPick: true }
+  s.pending = { kind: 'fork', tileId: 43, options: [17, 18], stepsLeft: 4, cameFrom: 43, canPick: true }
   s.players[0].pos = 43
   s.players[0].walkPath = [43]
   s = gameReducer(s, { type: 'CHOOSE_FORK', tileId: 17 })

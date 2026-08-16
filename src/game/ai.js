@@ -126,7 +126,7 @@ export function aiDecide(state, playerId) {
         const best = own.sort((a, b) => (TILES[b].price ?? 0) - (TILES[a].price ?? 0))[0]
         return { type: 'CHECKIN_TELEPORT', tileId: best }
       }
-      const others = TILES.filter((t) => t && !t.removed && !isPropertyTile(t) ? false : t).filter((t) => t && isPropertyTile(t))
+      const others = TILES.filter((t) => t && !t.removed && isPropertyTile(t))
       const rand = others[Math.floor(Math.random() * others.length)]
       return { type: 'CHECKIN_TELEPORT', tileId: rand.id }
     }

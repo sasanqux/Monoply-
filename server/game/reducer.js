@@ -167,7 +167,7 @@ function tryTriggerShop(s, p) {
 }
 
 export function gameReducer(state, action) {
-  const s = JSON.parse(JSON.stringify(state))
+  const s = structuredClone(state)
   if (s.status !== 'playing') return s
   s.announcedGroups ??= {}
   s.closedBridges ??= {}

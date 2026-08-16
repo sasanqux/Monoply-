@@ -70,12 +70,8 @@ export function tickLottery(state) {
       drawNumber(state)
     }
   } else if (lot.phase === 'drawing') {
-    // 开奖中期：检查上一回合是否有人中奖
-    // 如果有人中奖（phase 已被 resetLottery 变回 buying），不需要处理
-    // 如果无人中奖（还是 drawing），换一个新号码
-    if (lot.phase === 'drawing') {
-      drawNumber(state)
-    }
+    // 开奖中期：无人中奖则换一个新号码
+    drawNumber(state)
   }
 }
 

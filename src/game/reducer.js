@@ -214,6 +214,8 @@ export function gameReducer(state, action) {
       const from = p.pos
       s.dice = dice
       s.stepsRemaining = sum
+      // 重置所有玩家的行走路径（动画用）
+      for (const pl of s.players) { pl.walkPath = [pl.pos] }
       s.phase = 'step' // 等待前端逐步推进
       s.log.push(`🎲 ${p.name} 掷出 ${dice.join(' + ')} = ${sum}，从「${TILES[from].name}」出发`)
       break
@@ -224,13 +226,13 @@ export function gameReducer(state, action) {
       if (!s.stepsRemaining || s.stepsRemaining <= 0) break
       const cur = TILES[p.pos]
       const cameFrom = p.pos
-      const result = stepOneTile(cur, p, cameFrom)
-      if (result.paused) {
+      const stepRes = stepOneTile(cur, p, cameFrom)
+      if (stepRes.paused) {
         // 分岔暂停
         s.pending = {
           kind: 'fork',
           tileId: cur.id,
-          options: result.options,
+          options: stepRes.options,
           chosen: null,
           stepsLeft: s.stepsRemaining,
           cameFrom,
@@ -240,13 +242,13 @@ export function gameReducer(state, action) {
         break
       }
       // 走 1 步
-      p.pos = result.nextId
+      p.pos = stepRes.nextId
       p.walkPath = p.walkPath || [cameFrom]
-      p.walkPath.push(result.nextId)
-      if (result.needsReverse) p.reverse = true
+      p.walkPath.push(stepRes.nextId)
+      if (stepRes.needsReverse) p.reverse = true
       s.stepsRemaining -= 1
       // 路障检查
-      const landed = TILES[result.nextId]
+      const landed = TILES[stepRes.nextId]
       if (landed?.barrier && landed.barrier !== p.id) {
         const owner = s.players.find((pl) => pl.id === landed.barrier)
         p.points = (p.points ?? 0) - 50
@@ -277,8 +279,13 @@ export function gameReducer(state, action) {
       p.walkPath = p.walkPath || [p.pos]
       p.walkPath.push(finalChoice)
       p.pos = finalChoice
-      s.stepsRemaining = stepsLeft
+      s.stepsRemaining = stepsLeft - 1 // 选路消耗 1 步
       s.phase = 'step' // 前端继续推进剩余步数
+      if (s.stepsRemaining <= 0) {
+        s.stepsRemaining = 0
+        s.phase = 'landed'
+        handleLanding(s, p)
+      }
       // 路障检查
       const landed = TILES[finalChoice]
       if (landed?.barrier && landed.barrier !== p.id) {
@@ -393,12 +400,15 @@ export function gameReducer(state, action) {
       const target = s.players.find((pl) => pl.alive && pl.id === action.targetPlayerId)
       if (!target || target.id === p.id) break
       // 校验提供的资产是否真的属于发起方
+      let invalid = false
       for (const id of action.offer.lands || []) {
-        if (!p.properties.includes(id)) { s.log.push('交易失败：你不拥有提供的一块地'); break }
+        if (!p.properties.includes(id)) { s.log.push('交易失败：你不拥有提供的一块地'); invalid = true; break }
       }
+      if (invalid) break
       for (const id of action.request.lands || []) {
-        if (!target.properties.includes(id)) { s.log.push('交易失败：对方不拥有你要的一块地'); break }
+        if (!target.properties.includes(id)) { s.log.push('交易失败：对方不拥有你要的一块地'); invalid = true; break }
       }
+      if (invalid) break
       if (action.offer.money && p.money < action.offer.money) { s.log.push('交易失败：现金不足'); break }
       s.pending = {
         kind: 'trade',

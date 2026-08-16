@@ -81,7 +81,7 @@ export function upgradeCost(tile) {
 // 能否开店升级：地产且可升级、等级<3、钱够、未抵押、且本回合踩过该地块
 export function canUpgrade(state, player, tile) {
   if (!isPropertyTile(tile) || !player.properties.includes(tile.id)) return false
-  if (tile.type === 'metro' && !tile.upgradable) return false
+  if (tile.type === 'station' && !tile.upgradable) return false
   const level = player.levels[tile.id] ?? 0
   if (level >= 3) return false
   if (player.money < upgradeCost(tile)) return false

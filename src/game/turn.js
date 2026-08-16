@@ -61,6 +61,13 @@ export function handleLanding(state, player) {
       // 抵押地不收租
       state.log.push(`${player.name} 踩到 ${owner.name} 抵押中的「${tile.name}」，无需付租`)
     } else {
+      // 轻轨站：可乘轻轨去其他站（购买决策优先，买完不再弹乘轻轨）
+      if (isMetro(tile) && !state.pending) {
+        state.pending = { kind: 'metro', tileId: tile.id }
+      }
+      // 维护可升级地块（踩到自己的地产 → 加入可升级列表）
+      if (!player.upgradableTiles) player.upgradableTiles = []
+      if (!player.upgradableTiles.includes(tile.id)) player.upgradableTiles.push(tile.id)
       // 免罪卡：豁免本次租金/使用费（消耗 shield，跳过本次扣款与后续结算）
       if (tryShield(state, player)) return
       const level = owner.levels[tile.id] ?? 0
@@ -83,13 +90,6 @@ export function handleLanding(state, player) {
         }
       }
     }
-    // 轻轨站：可乘轻轨去其他站（购买决策优先，买完不再弹乘轻轨）
-    if (isMetro(tile) && !state.pending) {
-      state.pending = { kind: 'metro', tileId: tile.id }
-    }
-    // 维护可升级地块（踩到自己的地产 → 加入可升级列表）
-    if (!player.upgradableTiles) player.upgradableTiles = []
-    if (!player.upgradableTiles.includes(tile.id)) player.upgradableTiles.push(tile.id)
     return
   }
 
@@ -276,15 +276,6 @@ export function handleLanding(state, player) {
       }
       break
     }
-    case 'god': {
-      // 神仙格：踩中触发神仙附身
-      handleGodTile(state, player)
-      // 穷神：附身后立即扣20%现金
-      if (player.god === 'godOfPoverty') {
-        applyPovertyPenalty(state, player)
-      }
-      break
-    }
     default:
       break
   }
@@ -397,8 +388,7 @@ export function nextTurn(state) {
         pl.hand.push({ ...tpl, id: `round5-${pl.id}-${++state._cardSeq}` })
         state.log.push(`🎴 第 ${state.round} 回合福利：${pl.name} 获得卡片「${tpl.name}」`)
       } else {
-        pl.points = (pl.points ?? 0) + 400
-        state.log.push(`🎴 第 ${state.round} 回合福利：${pl.name} 手牌满了换成 ¥400`)
+        addMoney(state, pl.id, 400, `第 ${state.round} 回合福利：${pl.name} 手牌满了换成 ¥400`)
       }
     }
   }

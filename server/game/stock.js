@@ -151,7 +151,8 @@ export function applyBlackStock(state, code) {
   const def = STOCKS[code]
   if (!def) return false
   const rt = state.stockRuntime[code]
-  rt.pendingBoost = 0.20  // 下回合额外 +20%
+  if (!rt.activeEvents) rt.activeEvents = []
+  rt.activeEvents.push({ text: '黑市卡涨停', icon: '📈', delta: 0.20, turnsLeft: 1 })
   state.log.push(`📈 黑市卡生效！${def.name} 下回合将涨停！`)
   return true
 }
@@ -161,7 +162,9 @@ export function applyRedStock(state, code) {
   const def = STOCKS[code]
   if (!def) return false
   const rt = state.stockRuntime[code]
-  rt.pendingBoost = 0.10 + Math.random() * 0.20  // 10%~30%
+  const boost = 0.10 + Math.random() * 0.20  // 10%~30%
+  if (!rt.activeEvents) rt.activeEvents = []
+  rt.activeEvents.push({ text: '红市卡大涨', icon: '📈', delta: boost, turnsLeft: 1 })
   state.log.push(`📈 红市卡生效！${def.name} 下回合将大涨！`)
   return true
 }

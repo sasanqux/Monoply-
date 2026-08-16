@@ -1,6 +1,6 @@
 @echo off
 cd /d "%~dp0"
-taskkill /F /IM node.exe /T >NUL 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr :8080 ^| findstr LISTENING') do taskkill /F /PID %%a >NUL 2>&1
 timeout /t 2 /nobreak >NUL
 
 echo Building frontend...
@@ -18,5 +18,5 @@ start "" http://localhost:8080
 
 echo.
 echo ========================================
-echo   Game running at http://localhost:3000
+echo   Game running at http://localhost:8080
 echo ========================================

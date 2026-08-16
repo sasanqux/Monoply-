@@ -158,6 +158,12 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 离开房间
+  socket.on('leaveRoom', () => {
+    const room = leaveRoom(socket.id);
+    if (room) broadcastRoom(room);
+  });
+
   // 聊天
   socket.on('chat', ({ text }) => {
     const room = findRoomBySocket(socket.id);

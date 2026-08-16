@@ -64,10 +64,6 @@ function posOf(id) {
   return tilePosition(id)
 }
 
-function isRiverBank(t) {
-  return false
-}
-
 function isFork(t) {
   // 化龙桥(44)有岔路分支但不在地图上显示分岔标签
   if (t.id === 44) return false
@@ -188,7 +184,7 @@ function upgradable(id) {
   if (!p || p.isAI) return false
   const tile = TILES[id]
   if (!isPropertyTile(tile) || !p.properties.includes(id)) return false
-  if (tile.type === 'metro' && !tile.upgradable) return false
+  if (tile.type === 'station' && !tile.upgradable) return false
   const level = p.levels[id] ?? 0
   return level < 3
 }
@@ -234,7 +230,6 @@ function onTile(t) {
       :class="{
         'tile--sel': selectable.includes(t.id),
         'tile--up': upgradable(t.id),
-        'tile--bank': isRiverBank(t),
         'tile--fork': isFork(t),
         'tile--start': t.type === 'start',
         'tile--unowned': isUnownedHighlight(t),
@@ -246,7 +241,6 @@ function onTile(t) {
     >
       <span class="tile__num">{{ t.id }}</span>
       <span v-if="isFork(t)" class="tile__fork" title="分岔路口：可自选路线">分</span>
-      <span v-if="isRiverBank(t)" class="tile__bank-mark"><ComicIcon name="wave" :size="13" /></span>
       <span class="tile__name" :style="{ fontSize: nameFont(t.name) }">{{ t.name }}</span>
       <span v-if="isPropertyTile(t) && t.price" class="tile__price">¥{{ t.price }}<span v-if="t.points" class="tile__points">{{ t.points }}</span></span>
       <span v-if="t.shop" class="tile__cardshop" title="卡片商店：路过可购买卡片">卡</span>
