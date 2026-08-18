@@ -41,11 +41,11 @@ export function initStockRuntime() {
 export function buyStock(state, player, code, shares) {
   const def = STOCKS[code]
   if (!def) return { ok: false, msg: '股票代码不存在' }
-  const sharesNum = Math.floor(shares)
-  if (sharesNum < 1) return { ok: false, msg: '至少买1股' }
+  const sharesNum = Math.floor(Number(shares))
+  if (!Number.isFinite(sharesNum) || sharesNum < 1) return { ok: false, msg: '至少买1股' }
 
   const price = state.stockRuntime[code].current
-  const cost = price * sharesNum
+  const cost = Math.round(price * sharesNum) // 入账取整，避免小数钱
   const fee = Math.max(1, Math.floor(cost * BUY_FEE_RATE))
   const total = cost + fee
 
@@ -73,8 +73,8 @@ export function buyStock(state, player, code, shares) {
 export function sellStock(state, player, code, shares) {
   const def = STOCKS[code]
   if (!def) return { ok: false, msg: '股票代码不存在' }
-  const sharesNum = Math.floor(shares)
-  if (sharesNum < 1) return { ok: false, msg: '至少卖1股' }
+  const sharesNum = Math.floor(Number(shares))
+  if (!Number.isFinite(sharesNum) || sharesNum < 1) return { ok: false, msg: '至少卖1股' }
 
   const holdings = player.stockHoldings || {}
   const held = holdings[code] || 0

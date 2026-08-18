@@ -104,6 +104,8 @@ export function totalAssets(player) {
       total += tile.price + Math.round(tile.price * UPGRADE_COST_RATIO * level)
     }
   }
+  // 减去未还贷款（待还总额含利息）
+  total -= player.loanRepay || 0
   return total
 }
 

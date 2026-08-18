@@ -8,7 +8,7 @@ const emit = defineEmits(['start'])
   <div class="home">
     <div class="home__logo">
       <span class="home__icon">🎲</span>
-      <h1 class="comic-title comic-title--xl home__title">重庆大富翁</h1>
+      <h1 class="comic-title comic-title--xl home__title">大富翁——重庆之旅</h1>
       <p class="home__tag">两江 · 桥 · 卡牌</p>
     </div>
     <button class="btn-comic btn-comic--xl home__btn" @click="emit('start')">

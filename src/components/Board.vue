@@ -65,9 +65,8 @@ function posOf(id) {
 }
 
 function isFork(t) {
-  // 化龙桥(44)有岔路分支但不在地图上显示分岔标签
-  if (t.id === 44) return false
-  return !!(t.forks && t.forks.length)
+  // 3 个及以上邻居 = 分岔点（2 邻居 = 直行，无分岔标签）
+  return !!(t.neighbors && t.neighbors.length >= 3)
 }
 
 // 格子像素尺寸：网格 10 列 × 9 行，单格占 9.4%×10.6%（留极细缝防边框重叠）；
@@ -534,31 +533,34 @@ function onTile(t) {
 
 .tile__price {
   position: absolute;
-  bottom: 1px;
+  bottom: 2px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 0.85cqw;
+  font-size: 1.15cqw;
   font-weight: 900;
   line-height: 1;
-  background: rgba(26, 26, 26, 0.62);
+  background: rgba(26, 26, 26, 0.75);
   color: #fff;
-  padding: 1px 4px;
-  border-radius: 5px;
+  padding: 2px 6px;
+  border-radius: 6px;
   white-space: nowrap;
   pointer-events: none;
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  letter-spacing: 0.02em;
 }
 
 .tile__points {
-  font-size: 0.75cqw;
-  font-weight: 700;
-  color: #fbbf24;
-  background: rgba(0, 0, 0, 0.35);
-  padding: 0 2px;
-  border-radius: 3px;
+  font-size: 1.0cqw;
+  font-weight: 900;
+  color: #fde047;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 1px 4px;
+  border-radius: 4px;
   line-height: 1.2;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
 }
 
 .tile__pawns {

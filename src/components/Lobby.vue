@@ -21,6 +21,15 @@ const sock = computed(() => getSocket())
 const isHost = computed(() => room.value?.hostId && sock.value && room.value.hostId === sock.value.id)
 const allReady = computed(() => room.value?.players?.length >= 2 && room.value.players.every(p => p.ready))
 const isJoinMode = computed(() => props.mode === 'join')
+// 我的座位 id（createRoom/joinRoom 回调返回），用于在大厅列表里认出自己
+const myPlayerId = ref('')
+const me = computed(() => room.value?.players?.find(p => p.id === myPlayerId.value) ?? null)
+
+function toggleReady() {
+  sock.value.emit('ready', {}, (res) => {
+    if (res?.error) error.value = res.error
+  })
+}
 
 // 已被占用的颜色
 const usedColors = computed(() => room.value?.players?.map(p => p.color) || [])
@@ -39,8 +48,9 @@ onMounted(() => {
       if (avail.length > 0) playerColor.value = avail[0]
     }
   })
-  s.on('gameStart', ({ room: r }) => {
-    emit('enter', { roomId: r.roomId, gameState: r.gameState })
+  s.on('gameStart', ({ roomId }) => {
+    // 只带 roomId 的轻量信号；对局状态等第一条 gameState 广播（防手牌泄漏）
+    emit('enter', { roomId })
   })
 })
 
@@ -62,6 +72,7 @@ function createRoom() {
     color: playerColor.value,
   }, (res) => {
     if (res?.error) { error.value = res.error; return }
+    myPlayerId.value = res.playerId
   })
 }
 
@@ -75,6 +86,7 @@ function joinRoom() {
     color: playerColor.value,
   }, (res) => {
     if (res?.error) { error.value = res.error; return }
+    myPlayerId.value = res.playerId
   })
 }
 
@@ -154,18 +166,23 @@ function leaveRoom() {
       <div class="lobby__players">
         <div v-for="p in room.players" :key="p.id" class="lobby__player">
           <i class="lobby__dot" :style="{ background: p.color || 'var(--pop-blue)' }"></i>
-          <span>{{ p.name }}</span>
+          <span>{{ p.name }}{{ p.id === myPlayerId ? '（我）' : '' }}</span>
           <span v-if="p.isHost" class="tag-comic tag-comic--red lobby__host-tag">房主</span>
-          <span v-if="p.ready" class="tag-comic tag-comic--green">已准备</span>
+          <span v-if="p.disconnected" class="tag-comic tag-comic--red">重连中…</span>
+          <span v-else-if="p.ready" class="tag-comic tag-comic--green">已准备</span>
+          <span v-else class="tag-comic">未准备</span>
         </div>
         <p v-if="room.players.length < 8" class="lobby__empty">等待玩家加入... ({{ room.players.length }}/8)</p>
       </div>
 
       <div class="lobby__btns">
         <button v-if="isHost" class="btn-comic btn-comic--lg" :disabled="!allReady" @click="startGame">
-          {{ allReady ? '开始游戏' : '等待玩家加入...' }}
+          {{ allReady ? '开始游戏' : '等待玩家准备...' }}
         </button>
-        <span v-else class="lobby__waiting">等待房主开始...</span>
+        <template v-else>
+          <button v-if="me && !me.ready" class="btn-comic btn-comic--green" @click="toggleReady">我准备好了</button>
+          <button v-else class="btn-comic btn-comic--ghost" @click="toggleReady">取消准备</button>
+        </template>
         <button class="btn-comic btn-comic--ghost" @click="leaveRoom">离开</button>
       </div>
 

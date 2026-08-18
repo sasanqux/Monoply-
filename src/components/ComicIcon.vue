@@ -190,7 +190,7 @@ const props = defineProps({
       <path d="M8 12.9 V10.5 M16 12.9 V10.5 M8 10.5 H16" stroke="#1a1a1a" stroke-width="2" stroke-linecap="round" />
     </g>
 
-    <!-- 盾牌（免罪） -->
+    <!-- 盾牌（免租） -->
     <g v-else-if="name === 'shield'">
       <path d="M12 3 L19 5.5 V12 Q19 17.5 12 21 Q5 17.5 5 12 V5.5 Z" fill="#3b82f6" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round" />
       <path d="M9 12 L11.2 14.2 L15.5 9.8" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
@@ -272,6 +272,16 @@ const props = defineProps({
       <path d="M12 3 V19" stroke="#1a1a1a" stroke-width="1.8" />
       <path d="M7 8 H11 M7 11 H11 M7 14 H10" stroke="#fff" stroke-width="1.4" stroke-linecap="round" opacity="0.6" />
       <path d="M13 8 H17 M13 11 H17 M13 14 H16" stroke="#fff" stroke-width="1.4" stroke-linecap="round" opacity="0.6" />
+    </g>
+
+    <!-- 银行（建筑+柱子） -->
+    <g v-else-if="name === 'bank'">
+      <rect x="3" y="9" width="18" height="11" fill="#3b82f6" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round" />
+      <rect x="6" y="5" width="12" height="5" fill="#3b82f6" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round" />
+      <path d="M3 9 H21" stroke="#1a1a1a" stroke-width="2" />
+      <rect x="8" y="12" width="2.5" height="5" fill="#fff" opacity="0.5" />
+      <rect x="13.5" y="12" width="2.5" height="5" fill="#fff" opacity="0.5" />
+      <circle cx="12" cy="7" r="1.8" fill="#facc15" stroke="#1a1a1a" stroke-width="1.2" />
     </g>
 
     <!-- 未知兜底 -->

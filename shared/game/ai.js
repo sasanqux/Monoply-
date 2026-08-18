@@ -51,34 +51,8 @@ function randomEnemy(state, cur) {
   return others[Math.floor(Math.random() * others.length)].id
 }
 
-// 图结构前驱（沿图回退一格）
-function predecessorOf(id) {
-  for (const t of TILES) {
-    if (!t) continue
-    if (t.next === id || (t.forks && t.forks.includes(id))) return t.id
-  }
-  return id
-}
-
 export function aiDecide(state, playerId) {
-  // 拍卖阶段：行动者是当前出价轮到的玩家（非回合玩家）
-  const cur = state.phase === 'auction' && state.pending?.kind === 'auction' ? state.players[state.pending.turn] : currentPlayer(state)
-  if (cur.id !== playerId) return null
-
-  if (state.phase === 'auction') {
-    const ap = state.pending
-    if (ap.roundStep === 1) return { type: 'AUCTION_REVEAL' } // 揭晓阶段自动触发
-    if (ap.roundStep !== 0) return null
-    const tile = TILES[ap.tileId]
-    // AI 盲拍策略：随机出到原价 50%~80%，保留 20% 安全垫
-    const maxBid = Math.floor(tile.price * (0.5 + Math.random() * 0.3))
-    const safeReserve = cur.money * 0.2
-    const bid = Math.min(maxBid, Math.floor(cur.money - safeReserve))
-    if (bid > 0) return { type: 'AUCTION_BID', amount: bid }
-    return { type: 'AUCTION_BID', amount: 0 } // 放弃
-  }
-
-  // 交易提案：AI 评估是否接受
+  // 交易提案：目标是本 AI 时立即评估（不受当前回合限制——目标玩家本来就不是回合玩家）
   if (state.pending?.kind === 'trade' && state.pending.to === playerId) {
     const tp = state.pending
     const fromP = state.players.find((p) => p.id === tp.from)
@@ -94,6 +68,28 @@ export function aiDecide(state, playerId) {
       return { type: 'TRADE_ACCEPT' }
     }
     return { type: 'TRADE_REJECT' }
+  }
+
+  // 拍卖阶段：行动者是当前出价轮到的玩家（非回合玩家）
+  const cur = state.phase === 'auction' && state.pending?.kind === 'auction' ? state.players[state.pending.turn] : currentPlayer(state)
+  if (!cur || cur.id !== playerId) return null
+
+  if (state.phase === 'auction') {
+    const ap = state.pending
+    if (ap.roundStep === 1) return { type: 'AUCTION_REVEAL' } // 揭晓阶段自动触发
+    if (ap.roundStep !== 0) return null
+    const tile = TILES[ap.tileId]
+    // AI 盲拍策略：随机出到原价 50%~80%，保留 20% 安全垫
+    const maxBid = Math.floor(tile.price * (0.5 + Math.random() * 0.3))
+    const safeReserve = cur.money * 0.2
+    const bid = Math.min(maxBid, Math.floor(cur.money - safeReserve))
+    if (bid > 0) return { type: 'AUCTION_BID', amount: bid }
+    return { type: 'AUCTION_BID', amount: 0 } // 放弃
+  }
+
+  // 决定先手顺序阶段：掷骰
+  if (state.phase === 'order') {
+    return { type: 'ROLL_ORDER' }
   }
 
   if (state.phase === 'roll') {
@@ -185,12 +181,11 @@ export function aiDecide(state, playerId) {
 
     // 4. 即时卡（无需目标）——第一回合/已用卡不用
     const instant = !cur.firstTurn && !cur.cardUsed && cur.hand.find((c) =>
-      c.type === 'shield' ? true
-        : c.type === 'steal' ? enemyWithCard(state, cur) != null
-          : c.type === 'freeUpgrade' ? cur.properties.some((i) => isPropertyTile(TILES[i]) && (cur.levels[i] ?? 0) < 3)
-            : c.type === 'sendGod' ? cur.god != null && isBadGod(cur.god)
-              : c.type === 'blackStock' || c.type === 'redStock' ? cur.money >= 1000
-                : false
+      c.type === 'steal' ? enemyWithCard(state, cur) != null
+        : c.type === 'freeUpgrade' ? cur.properties.some((i) => isPropertyTile(TILES[i]) && (cur.levels[i] ?? 0) < 3)
+          : c.type === 'sendGod' ? cur.god != null && isBadGod(cur.god)
+            : c.type === 'blackStock' || c.type === 'redStock' ? cur.money >= 1000
+              : false
     )
     if (instant) {
       // 股票卡需要选目标股票

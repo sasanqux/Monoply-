@@ -121,11 +121,15 @@ function onMetroClick() {
         <span v-else class="info__muted">—</span>
       </div>
 
-      <!-- 地产：价值/租金/等级/开店 -->
+      <!-- 地产：价值/积分/租金/等级/开店 -->
       <template v-if="isPropertyTile(tile)">
         <div class="info__row">
           <span class="info__label">地块价值</span>
           <span class="info__val">¥{{ tile.price }}</span>
+        </div>
+        <div v-if="tile.points" class="info__row">
+          <span class="info__label">卡片积分</span>
+          <span class="info__val info__val--pts">{{ tile.points }} 分</span>
         </div>
         <div class="info__row">
           <span class="info__label">基础租金</span>
@@ -268,6 +272,9 @@ function onMetroClick() {
 
 .info__val--hot {
   color: var(--pop-red);
+}
+.info__val--pts {
+  color: #d97706;
 }
 
 .info__muted {

@@ -13,6 +13,46 @@ const emit = defineEmits(['playerClick', 'trade'])
 
 const expanded = ref(null) // 展开的玩家 id
 
+// 金钱滚动动画：追踪每个玩家的显示金额
+const displayMoney = ref({}) // { playerId: 当前显示值 }
+const moneyAnimating = ref({}) // { playerId: true/false }
+
+// 初始化 + 同步金额
+watch(
+  () => props.state.players.map(p => `${p.id}:${p.money}`).join(','),
+  () => {
+    const players = props.state.players
+    for (const p of players) {
+      const prev = displayMoney.value[p.id]
+      if (prev !== undefined && prev !== p.money) {
+        // 触发滚动
+        animateMoney(p.id, prev, p.money)
+      } else {
+        displayMoney.value[p.id] = p.money
+      }
+    }
+  }
+)
+
+function animateMoney(pid, from, to) {
+  moneyAnimating.value[pid] = true
+  const duration = 400
+  const start = performance.now()
+  function step(now) {
+    const t = Math.min(1, (now - start) / duration)
+    // easeOutCubic
+    const ease = 1 - Math.pow(1 - t, 3)
+    displayMoney.value[pid] = Math.round(from + (to - from) * ease)
+    if (t < 1) {
+      requestAnimationFrame(step)
+    } else {
+      displayMoney.value[pid] = to
+      moneyAnimating.value[pid] = false
+    }
+  }
+  requestAnimationFrame(step)
+}
+
 // 资产曲线数据：为每个玩家生成 SVG 路径点
 function assetCurvePath(playerId) {
   const history = props.state.assetHistory?.[playerId]
@@ -46,7 +86,7 @@ const logEl = ref(null)
 const chatEl = ref(null)
 const chatDraft = ref('')
 const chatMessages = ref([
-  { kind: 'system', text: '欢迎来到重庆大富翁！聊天功能为联机预留，敬请期待。' },
+  { kind: 'system', text: '欢迎来到大富翁——重庆之旅！聊天功能为联机预留，敬请期待。' },
 ])
 const logUserScroll = ref(false) // 用户手动上滚时不自动追底
 
@@ -185,8 +225,8 @@ function onPlayer(p) {
             </i>
             <span class="player__name">{{ p.name }}<em v-if="p.isAI">AI</em></span>
             <span class="player__status">{{ statusOf(p) }}</span>
-            <span class="player__money" :class="{ 'player__money--debt': p.bankrupt && p.money < 0 }">
-              {{ p.bankrupt && p.money < 0 ? '欠¥' + -p.money : '¥' + p.money }}
+            <span class="player__money" :class="{ 'player__money--debt': p.bankrupt && p.money < 0, 'player__money--anim': moneyAnimating[p.id] }">
+              {{ p.bankrupt && p.money < 0 ? '欠¥' + -displayMoney[p.id] : '¥' + (displayMoney[p.id] ?? p.money) }}
             </span>
             <i class="cnt" title="卡片积分" style="font-style: normal; font-weight: 900; color: #2563eb">{{ p.points ?? 0 }}</i>
             <span class="player__counts">
@@ -406,6 +446,10 @@ function onPlayer(p) {
 
 .player__money--debt {
   color: var(--pop-red);
+}
+.player__money--anim {
+  transition: none;
+  color: var(--pop-blue);
 }
 
 .player__counts {

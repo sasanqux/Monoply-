@@ -10,14 +10,13 @@ export const CARDS = [
   { type: 'steal', name: '抢夺卡', desc: '抢对方一张手牌', icon: 'steal', howto: '点一下直接用：随机抢走对方手牌里的一张卡片', price: 40 },
   { type: 'demolish', name: '拆除卡', desc: '拆对方一栋楼', icon: 'demolish', howto: '点对方一块有楼的地，拆掉一层', price: 50 },
   { type: 'barrier', name: '路障卡', desc: '在任意地块放路障，玩家踩中扣50积分并截停', icon: 'barrier', howto: '点一块地产格放置路障', price: 50 },
-  { type: 'shield', name: '免罪卡', desc: '免一次租金/轻轨使用费', icon: 'shield', howto: '点一下直接用：落到对手地产时免付本次租金或轻轨使用费', price: 30 },
-  { type: 'reverse', name: '转向卡', desc: '本次移动反向走', icon: 'reverse', howto: '点一下直接用：本回合移动方向反过来走', price: 30 },
+  { type: 'shield', name: '免租卡', desc: '免一次租金/轻轨使用费', icon: 'shield', howto: '被动触发：落到对手地产付租金时弹出询问，可选择豁免本次租金或轻轨使用费', price: 30 },
   { type: 'hold', name: '停留卡', desc: '让对手停一轮', icon: 'hold', howto: '选一个对手，让他跳过下一回合', price: 40 },
   { type: 'monster', name: '怪兽卡', desc: '拆平对手的楼', icon: 'monster', howto: '点对方一块地，拆平上面所有楼（归零）', price: 200 },
   { type: 'freeUpgrade', name: '免费升级', desc: '随机一块自己的地升 1 级', icon: 'upgrade', howto: '点一下直接用：随机一块自己的地产免费升 1 级', price: 80 },
   { type: 'sendGod', name: '送神卡', desc: '让附身的神离开', icon: 'sendGod', howto: '点一下直接用：让自己被附身的神仙离开', price: 50 },
-  { type: 'blackStock', name: '黑市卡', desc: '某只股票涨停', icon: 'stock', howto: '点一下直接用：某只股票涨停 20%-50%', price: 80 },
-  { type: 'redStock', name: '红市卡', desc: '某只股票大涨', icon: 'stock', howto: '点一下直接用：某只股票涨 20%-40%', price: 80 },
+  { type: 'blackStock', name: '黑市卡', desc: '选一只股票：下回合涨停', icon: 'stock', howto: '用卡时选一只股票：该股票下回合涨停 20%', price: 80 },
+  { type: 'redStock', name: '红市卡', desc: '选一只股票：下回合大涨', icon: 'stock', howto: '用卡时选一只股票：该股票下回合涨 20%-40%', price: 80 },
   { type: 'summonGod', name: '请神卡', desc: '随机被一名神仙附身', icon: 'summonGod', howto: '点一下直接用：随机召唤一只神仙附身（含崔斯特即时效果）', price: 80 },
   { type: 'moto', name: '摩托卡', desc: '获得摩托（2骰子），覆盖当前载具', icon: 'moto', howto: '点一下直接用：载具变为摩托（掷2颗骰子）', price: 50 },
   { type: 'car', name: '汽车卡', desc: '获得汽车（3骰子），覆盖当前载具', icon: 'car', howto: '点一下直接用：载具变为汽车（掷3颗骰子）', price: 80 },
@@ -39,8 +38,11 @@ export function cardTargetKind(cardType) {
       return 'swap'
     case 'hold':
       return 'player'
+    case 'blackStock':
+    case 'redStock':
+      return 'stock'
     default:
-      return 'none' // steal/shield/reverse/freeUpgrade/sendGod/summonGod/moto/car 无需目标
+      return 'none' // steal/shield/freeUpgrade/sendGod/summonGod/moto/car 无需目标
   }
 }
 
@@ -79,6 +81,13 @@ export function applyCard(state, player, card, target) {
         them.levels[myTile.id] = theirLevel
         delete them.levels[theirTile.id]
       } else delete them.levels[myTile.id]
+      // 抵押标记跟着地走（否则原主人 mortgaged{} 会指向已不属于自己的地）
+      player.mortgaged = player.mortgaged || {}
+      them.mortgaged = them.mortgaged || {}
+      const myMort = !!player.mortgaged[myTile.id]
+      const theirMort = !!them.mortgaged[theirTile.id]
+      if (myMort) { delete player.mortgaged[myTile.id]; player.mortgaged[theirTile.id] = true }
+      if (theirMort) { delete them.mortgaged[theirTile.id]; them.mortgaged[myTile.id] = true }
       state.log.push(`🔁 ${player.name} 用换地卡与 ${them.name} 交换了「${myTile.name}」和「${theirTile.name}」`)
       return true
     }
@@ -103,13 +112,9 @@ export function applyCard(state, player, card, target) {
       return true
     }
     case 'shield':
-      player.shield = true
-      state.log.push(`🛡️ ${player.name} 使用免罪卡，获得一次豁免（税/过桥费）`)
-      return true
-    case 'reverse':
-      player.direction = -1
-      state.log.push(`↩️ ${player.name} 使用转向卡，本次移动反向！`)
-      return true
+      // 免租卡改为被动触发（付租金时询问），不再主动使用
+      state.log.push(`🛡️ 免租卡请在支付租金时使用（被动触发）`)
+      return false
     case 'hold': {
       const them = state.players.find((p) => p.id === target?.playerId && p.alive)
       if (!them || them.id === player.id) return false
@@ -169,12 +174,12 @@ export function applyCard(state, player, card, target) {
       return handleGodTile(state, player)
     }
     case 'barrier': {
-      // 路障卡：在指定地产格放置路障，踩中者扣50积分并截停
+      // 路障卡：在指定地产格放置路障，踩中者扣50积分并截停（存 state.barriers，随对局隔离）
       const tile = TILES[target?.tileId]
       if (!tile || !isPropertyTile(tile)) return false
-      if (tile.barrier) return false // 已有路障
-      tile.barrier = player.id
-      tile.barrierTurnsLeft = 3 // 3回合后自动消失
+      if (!state.barriers) state.barriers = {}
+      if (state.barriers[tile.id]) return false // 已有路障
+      state.barriers[tile.id] = { owner: player.id, turnsLeft: 3 } // 3回合后自动消失
       state.log.push(`🚧 ${player.name} 在「${tile.name}」放置了路障！`)
       return true
     }
@@ -197,12 +202,16 @@ export function applyCard(state, player, card, target) {
   }
 }
 
-// 桥格过路费豁免检查：免罪护盾（在 payMoney 前调用）
-export function tryShield(state, player) {
-  if (player.shield) {
-    player.shield = false
-    state.log.push(`🛡️ ${player.name} 的免罪卡生效，豁免本次扣款！`)
-    return true
+// 免租卡检查：玩家手中有免租卡时触发
+// 返回 'used'(AI自动使用) / 'ask'(人类弹询问) / 'none'(无卡)
+export function checkShieldCard(state, player) {
+  const idx = player.hand.findIndex((c) => c.type === 'shield')
+  if (idx === -1) return 'none'
+  if (player.isAI) {
+    // AI 自动使用
+    player.hand.splice(idx, 1)
+    state.log.push(`🛡️ ${player.name} 使用免租卡，豁免本次扣款！`)
+    return 'used'
   }
-  return false
+  return 'ask'
 }

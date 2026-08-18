@@ -3,6 +3,7 @@
 // 每 5 回合公布一个中奖数字，有人中→拿全部奖金，重置基础¥10000，新一轮
 // 无人中→下一回合换一个新数字直到有人中
 // 中奖那回合的下一回合直接开始新一轮
+import { TILES } from './board.js'
 
 const BASE_PRIZE = 10000
 const TICKET_PRICE = 500
@@ -22,7 +23,7 @@ export function initLotteryState() {
   }
 }
 
-// 购买彩票
+// 购买彩票（单张）
 export function buyTicket(state, playerId, number) {
   const lot = state.lottery
   if (!lot) return { ok: false, msg: '彩票系统未初始化' }
@@ -57,6 +58,33 @@ export function buyTicket(state, playerId, number) {
   return { ok: true }
 }
 
+// 批量购买彩票（选号后一次买多张）
+export function buyTickets(state, playerId, numbers) {
+  const lot = state.lottery
+  if (!lot) return { ok: false, msg: '彩票系统未初始化', count: 0 }
+
+  const player = state.players.find(p => p.id === playerId)
+  if (!player) return { ok: false, msg: '玩家不存在', count: 0 }
+
+  let count = 0
+  let failedMsg = ''
+  for (const number of numbers) {
+    const res = buyTicket(state, playerId, number)
+    if (res.ok) {
+      count++
+    } else {
+      failedMsg = res.msg
+      break // 钱不够或重复时停止
+    }
+  }
+
+  if (count > 0) {
+    state.log.push(`🎫 ${player.name} 批量购买了 ${count} 张彩票（共 ¥${count * TICKET_PRICE}）`)
+    return { ok: true, count, msg: `成功购买 ${count} 张` }
+  }
+  return { ok: false, count: 0, msg: failedMsg || '购买失败' }
+}
+
 // 每回合调用：判断是否需要开奖或换号码
 // 在 nextTurn 之后、phase='roll' 时调用
 export function tickLottery(state) {
@@ -88,6 +116,7 @@ function drawNumber(state) {
 
   // 检查是否有人中奖
   let winnerId = null
+  let winnerName = null
   for (const [pid, nums] of Object.entries(lot.pickedNumbers)) {
     if (nums.includes(winning)) {
       winnerId = pid
@@ -101,14 +130,19 @@ function drawNumber(state) {
     if (winner && winner.alive) {
       const prize = lot.pool
       winner.money += prize
+      winnerName = winner.name
       state.log.push(`🎉🎊 ${winner.name} 的彩票「${winning}」中了头奖！获得 ¥${prize}！🎊🎉`)
     }
     // 中奖后：下一回合开始新一轮
     lot.phase = 'drawing_won' // 标记：下回合重置
+    // 弹出开奖弹窗（含庆祝）
+    state.pending = { kind: 'lottery_draw', winning, winnerId, winnerName, prize: lot.pool, pool: lot.pool }
   } else {
     // 无人中奖
     state.log.push(`😢 无人中奖，下一回合重新开奖...`)
     lot.phase = 'drawing' // 保持开奖状态，下回合继续抽
+    // 弹出开奖弹窗（无庆祝）
+    state.pending = { kind: 'lottery_draw', winning, winnerId: null, winnerName: null, prize: 0, pool: lot.pool }
   }
 }
 
@@ -147,5 +181,18 @@ export function tryTriggerLottery(state, player) {
 
   state.pending = { kind: 'lottery', tileId: passed }
   state.log.push(`🎫 ${player.name} 路过彩票站，可以购买彩票！`)
+  return true
+}
+
+// 延迟触发彩票弹窗：路过彩票站后，当玩家停下（分岔/落地）时弹出
+export function tryTriggerLotteryDeferred(state) {
+  if (state.pending || !state._lotteryTile) return false
+  if (state.lotteryBoughtTurn) return false
+  if (state.lottery?.phase !== 'buying') return false
+  const tileId = state._lotteryTile
+  state.pending = { kind: 'lottery', tileId }
+  state._lotteryTile = null
+  const p = state.players.find((pl) => pl.alive && pl.pos === tileId) || state.players[state.turnIndex]
+  state.log.push(`🎫 ${p.name} 路过彩票站（${TILES[tileId].name}），可以购买彩票！`)
   return true
 }

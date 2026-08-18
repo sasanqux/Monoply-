@@ -3,7 +3,7 @@
 // 纯表现层：不碰游戏规则，坐标与棋盘 tilePosition 对齐（0-100 百分比）
 import { ref, watch } from 'vue'
 import ComicIcon from './ComicIcon.vue'
-import { playerInitial } from '../game/reducer.js'
+import { playerInitial } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
@@ -28,6 +28,9 @@ watch(
   () => props.lastMove,
   (mv) => {
     if (!mv || !props.state) return
+    // 新移动：移除即将重新动画的旧棋子，避免多棋子重叠
+    const newPids = new Set((mv.paths || []).map((w) => w.pid))
+    walkers.value = walkers.value.filter((x) => !newPids.has(x.pid))
     const plByPid = {}
     for (const p of props.state.players) plByPid[p.id] = p
     for (const w of mv.paths || []) {
@@ -79,11 +82,19 @@ const WORD_RULES = [
   { re: /商圈已建成/, word: 'BINGO!', color: '#facc15' },
   { re: /升级到/, word: 'LEVEL UP!', color: '#22c55e' },
   { re: /破产/, word: 'WAH!', color: '#64748b' },
-  { re: /免罪|豁免/, word: 'SHIELD!', color: '#3b82f6' },
+  { re: /免租|豁免/, word: 'SHIELD!', color: '#3b82f6' },
   { re: /陷害|监狱|拘留/, word: 'LOCKED!', color: '#64748b' },
   { re: /停留|定住/, word: 'FREEZE!', color: '#3b82f6' },
   { re: /购入/, word: 'KER-CHING!', color: '#facc15' },
   { re: /换地/, word: 'SWAP!', color: '#8b5cf6' },
+  { re: /路障/, word: 'BUMP!', color: '#f97316' },
+  { re: /土地公/, word: 'SNATCH!', color: '#a855f7' },
+  { re: /天使.*加盖/, word: 'BUILD!', color: '#22c55e' },
+  { re: /恶魔.*夷为平地/, word: 'CRUSH!', color: '#ef4444' },
+  { re: /财神加持/, word: 'KA-CHING!', color: '#facc15' },
+  { re: /衰神打折/, word: 'HALF...', color: '#64748b' },
+  { re: /穷神.*搜刮/, word: 'CHA-CHING!', color: '#ef4444' },
+  { re: /离开了.*时间到/, word: 'POOF!', color: '#a855f7' },
 ]
 let prevLogLen = 4 // 开局固定 4 条日志
 
@@ -125,6 +136,10 @@ const FLOAT_RULES = [
   { re: /缴纳.*税|扣款|穷神|请吃火锅|高温假/, sign: '-', color: '#ef4444' },
   { re: /卖出.*股/, sign: '+', color: '#22c55e' },
   { re: /彩票.*中奖/, sign: '+', color: '#facc15' },
+  { re: /路障.*扣.*积分/, sign: '-', color: '#f97316', key: 'points' },
+  { re: /土地公.*夺|抢夺.*夺走/, sign: '+', color: '#a855f7', key: 'points' },
+  { re: /天使.*加盖到/, sign: '+', color: '#22c55e', key: 'level' },
+  { re: /恶魔.*夷为平地/, sign: '-', color: '#ef4444', key: 'level' },
 ]
 watch(
   () => props.state?.log?.length,
@@ -134,24 +149,34 @@ watch(
     const line = props.state.log[len - 1]
     const rule = FLOAT_RULES.find((r) => r.re.test(line))
     if (!rule) return
-    // 从日志中提取金额
-    const m = line.match(/[¥¥](\d+)/)
-    if (!m) return
-    const amount = m[1]
-    // 找到当前行动的玩家位置
-    const p = props.state.players.find((pl) => pl.alive && pl.id === props.state.players[props.state.turnIndex]?.id)
-    if (!p) return
-    const pos = props.posMap?.[p.pos]
-    if (!pos) return
-    const id = ++floatSeq
-    const offsetX = (Math.random() * 8 - 4)
-    floats.value.push({
-      id,
-      text: `${rule.sign}¥${amount}`,
-      color: rule.color,
-      x: pos.x + offsetX,
-      y: pos.y - 4,
-    })
+      // 从日志中提取数值（金额/积分/等级）
+      let amount = null
+      let textPrefix = '¥'
+      if (rule.key === 'points') {
+        const pm = line.match(/(\d+)\s*积分/)
+        if (pm) { amount = pm[1]; textPrefix = '积分' }
+      } else if (rule.key === 'level') {
+        const lm = line.match(/(\d+)\s*级/)
+        if (lm) { amount = lm[1]; textPrefix = 'Lv' }
+      } else {
+        const m = line.match(/[¥¥](\d+)/)
+        if (m) amount = m[1]
+      }
+      if (!amount) return
+      // 找到当前行动的玩家位置
+      const p = props.state.players.find((pl) => pl.alive && pl.id === props.state.players[props.state.turnIndex]?.id)
+      if (!p) return
+      const pos = props.posMap?.[p.pos]
+      if (!pos) return
+      const id = ++floatSeq
+      const offsetX = (Math.random() * 8 - 4)
+      floats.value.push({
+        id,
+        text: `${rule.sign}${textPrefix}${amount}`,
+        color: rule.color,
+        x: pos.x + offsetX,
+        y: pos.y - 4,
+      })
     setTimeout(() => {
       floats.value = floats.value.filter((f) => f.id !== id)
     }, 1600)

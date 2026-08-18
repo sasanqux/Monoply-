@@ -2,10 +2,10 @@
 import { TILES, isPropertyTile, isMetro, GROUPS } from './board.js'
 import { payMoney, addMoney } from './bank.js'
 import { getRent, isGroupComplete, totalAssets, isMortgaged } from './property.js'
-import { randomCard, tryShield } from './card.js'
+import { randomCard, checkShieldCard } from './card.js'
 import { alivePlayers, checkBankrupt, getWinnerByElimination, settleByTurns } from './gameOver.js'
-import { handleGodTile, applyGodOnLand, godRentMultiplier, godFeeMultiplier, applyPovertyPenalty, tickGod } from './god.js'
-import { tickLottery, resetLotteryIfWon } from './lottery.js'
+import { handleGodTile, applyGodOnLand, godRentMultiplier, godFeeMultiplier, applyPovertyPenalty, tickGod, GODS } from './god.js'
+import { tickLottery, resetLotteryIfWon, tryTriggerLotteryDeferred } from './lottery.js'
 import { tickStockPrices } from './stock.js'
 import { drawStockEvents, applyStockEvent, tickStockEvents } from './stockEvents.js'
 
@@ -13,17 +13,18 @@ const HAND_LIMIT = 10
 const CORNER_BONUS = 800
 
 // 机会事件池（全局事件：影响所有玩家/跳转/暂停等）
+// icon: 卡片图标, desc: 卡片描述（弹窗展示用）
 const EVENT_POOL = [
-  { text: '国补', kind: 'allGain', amount: 2000 },
-  { text: '收房产税', kind: 'propertyTax', amount: 200 },
-  { text: '歌乐山贵宾', kind: 'gotoHospital', turns: 2 },
-  { text: '回到最初的起点', kind: 'gotoStart' },
-  { text: '八中主宰', kind: 'seizeTile', tileId: 28, rentBonus: 200 },
-  { text: '缴纳所得税', kind: 'incomeTax', rate: 0.1 },
-  { text: '重庆马拉松', kind: 'marathon' },
-  { text: '放高温假', kind: 'heatWave', cost: 500 },
-  { text: '铜梁龙比赛日', kind: 'gotoTile', tileId: 22 },
-  { text: '请吃火锅', kind: 'hotpot', cost: 1000 },
+  { text: '国补', kind: 'allGain', amount: 2000, icon: '💰', desc: '国家发放补贴！每位存活玩家获得 ¥2000' },
+  { text: '收房产税', kind: 'propertyTax', amount: 200, icon: '🏛️', desc: '政府征收房产税！每位玩家每块地产缴纳 ¥200' },
+  { text: '歌乐山贵宾', kind: 'gotoHospital', turns: 2, icon: '🏥', desc: '被诊断为疯子！送歌乐山休养 2 轮' },
+  { text: '回到最初的起点', kind: 'gotoStart', icon: '🏠', desc: '回到最初的起点——朝天门！触发打卡' },
+  { text: '八中主宰', kind: 'seizeTile', tileId: 28, rentBonus: 200, icon: '🏫', desc: '八中主宰！直接获得八中地块(28)，租金加成 +200' },
+  { text: '缴纳所得税', kind: 'incomeTax', rate: 0.1, icon: '💸', desc: '缴纳所得税！支付当前现金的 10%' },
+  { text: '重庆马拉松', kind: 'marathon', icon: '🏃', desc: '重庆马拉松！所有玩家下一回合行动格数翻倍' },
+  { text: '放高温假', kind: 'heatWave', cost: 500, icon: '🌡️', desc: '放高温假！其他玩家暂停一轮，自己支付 ¥500' },
+  { text: '铜梁龙比赛日', kind: 'gotoTile', tileId: 22, icon: '🐉', desc: '铜梁龙比赛日！传送到铜梁(22)观看龙舞比赛' },
+  { text: '请吃火锅', kind: 'hotpot', cost: 1000, icon: '🍲', desc: '请吃火锅！支付 ¥1000，其他玩家 50% 概率拉肚子暂停一轮' },
 ]
 
 export function drawEvent() {
@@ -41,9 +42,14 @@ export function handleLanding(state, player) {
   }
 
   // 神仙格职能（在地产购买之前触发）
+  state._godAfterBuy = null
   if (tile.god && !state.pending) {
-    handleGodTile(state, player)
+    const godId = handleGodTile(state, player)
     if (player.god === 'godOfPoverty') applyPovertyPenalty(state, player)
+    // 即时型神仙(崔斯特)不附身，不弹附身弹窗
+    if (GODS[godId]?.kind !== 'instant') {
+      state._godAfterBuy = { godId, playerId: player.id }
+    }
   }
 
   if (isPropertyTile(tile)) {
@@ -53,9 +59,7 @@ export function handleLanding(state, player) {
     const owner = state.players.find((p) => p.alive && p.properties.includes(tile.id))
     if (!owner) {
       state.pending = { kind: 'buy', tileId: tile.id }
-      return
-    }
-    if (owner.id === player.id) {
+    } else if (owner.id === player.id) {
       state.log.push(`${player.name} 回到自己的「${tile.name}」`)
     } else if (isMortgaged(owner, tile.id)) {
       // 抵押地不收租
@@ -68,19 +72,36 @@ export function handleLanding(state, player) {
       // 维护可升级地块（踩到自己的地产 → 加入可升级列表）
       if (!player.upgradableTiles) player.upgradableTiles = []
       if (!player.upgradableTiles.includes(tile.id)) player.upgradableTiles.push(tile.id)
-      // 免罪卡：豁免本次租金/使用费（消耗 shield，跳过本次扣款与后续结算）
-      if (tryShield(state, player)) return
-      const level = owner.levels[tile.id] ?? 0
-      let fee = getRent(state, tile, level)
-      // 财神/衰神：租金倍率
-      const rentMul = godRentMultiplier(owner)
-      if (rentMul !== 1) fee = Math.round(fee * rentMul)
-      // 穷神：过路费 ×2
-      const feeMul = godFeeMultiplier(player)
-      if (feeMul !== 1) fee = Math.round(fee * feeMul)
-      const feeName = isMetro(tile) ? '轻轨使用费' : '租金'
-      payMoney(state, player.id, owner.id, fee, `使用 ${owner.name} 的「${tile.name}」支付${feeName}`)
-      checkBankrupt(state, player)
+      // 免租卡：手中有卡时触发（AI自动用，人类弹询问）
+      const shieldResult = checkShieldCard(state, player)
+      if (shieldResult === 'ask') {
+        // 人类玩家：暂停，弹出询问（保存支付信息供后续使用）
+        state.pending = {
+          kind: 'shield',
+          tileId: tile.id,
+          ownerId: owner.id,
+          feeName: isMetro(tile) ? '轻轨使用费' : '租金',
+        }
+        return  // 等玩家选择后再继续
+      } else if (shieldResult === 'used') {
+        // AI 已自动使用，跳过支付
+      } else {
+        // 无卡，正常支付
+        const level = owner.levels[tile.id] ?? 0
+        let fee = getRent(state, tile, level)
+        // 财神/衰神：租金倍率
+        const rentMul = godRentMultiplier(owner)
+        let godTag = ''
+        if (rentMul === 2) godTag = '（财神加持 ×2）'
+        else if (rentMul === 0.5) godTag = '（衰神打折 ×0.5）'
+        if (rentMul !== 1) fee = Math.round(fee * rentMul)
+        // 穷神：过路费 ×2
+        const feeMul = godFeeMultiplier(player)
+        if (feeMul !== 1) fee = Math.round(fee * feeMul)
+        const feeName = isMetro(tile) ? '轻轨使用费' : '租金'
+        payMoney(state, player.id, owner.id, fee, `使用 ${owner.name} 的「${tile.name}」支付${feeName}${godTag}`)
+        checkBankrupt(state, player)
+      }
       // 商圈达成提示：记录"已达成"状态，但每轮开始时重置（防止地块换手后仍显示旧状态）
       if (tile.group && isGroupComplete(state, tile.group)) {
         const key = `${tile.group}@${state.round}`
@@ -90,8 +111,8 @@ export function handleLanding(state, player) {
         }
       }
     }
-    return
-  }
+    // 注意：不 return，继续执行下方的弹窗检测逻辑
+  } else {
 
   switch (tile.type) {
     case 'start': {
@@ -147,6 +168,8 @@ export function handleLanding(state, player) {
         }
         case 'gotoHospital': {
           // 歌乐山贵宾：直接跳转到歌乐山(20)，暂停行动 turns 轮
+          // hospital 仅作展示标记；跳过逻辑统一走 skipTurns（ROLL_DICE 里消零时清 hospital），
+          // 避免"hospital 分支 + skipTurns 分支"各跳一次 = 实际多停一轮
           player.pos = 20
           player.hospital = true
           player.skipTurns = ev.turns
@@ -245,9 +268,15 @@ export function handleLanding(state, player) {
             if (!owner) {
               state.pending = { kind: 'buy', tileId: tile.id }
             } else if (owner.id !== player.id) {
-              if (tryShield(state, player)) break
+              const shieldResult2 = checkShieldCard(state, player)
+              if (shieldResult2 === 'ask') {
+                state.pending = { kind: 'shield', tileId: tile.id, ownerId: owner.id, feeName: isMetro(tile) ? '轻轨使用费' : '租金' }
+                break
+              } else if (shieldResult2 === 'used') {
+                break
+              }
               const level = owner.levels[tile.id] ?? 0
-              const fee = getRent(state, tile, level)
+              const fee = Math.round(getRent(state, tile, level)) // 取整，避免 ×1.5 产生小数钱
               const feeName = isMetro(tile) ? '轻轨使用费' : '租金'
               payMoney(state, player.id, owner.id, fee, `使用 ${owner.name} 的「${tile.name}」支付${feeName}`)
               checkBankrupt(state, player)
@@ -274,16 +303,43 @@ export function handleLanding(state, player) {
         default:
           break
       }
+      // 记录奇遇事件，供弹窗展示（在所有效果应用完成后）
+      state._chancePopup = ev
       break
     }
     default:
       break
   }
+  } // end else (non-property tiles)
 
   // 维护可升级地块：踩到自己的地产 → 加入可升级列表（买了不能立刻升，要第二次落到）
   if (!player.upgradableTiles) player.upgradableTiles = []
   if (player.properties.includes(tile.id) && isPropertyTile(tile)) {
     if (!player.upgradableTiles.includes(tile.id)) player.upgradableTiles.push(tile.id)
+  }
+
+  // 神仙附身弹窗：无其他 pending 时直接显示，有 buy pending 时等购买流程结束后显示
+  if (state._godAfterBuy && !state.pending) {
+    const { godId, playerId } = state._godAfterBuy
+    state.pending = { kind: 'god', godId, playerId }
+    state._godAfterBuy = null
+  }
+
+  // 奇遇事件弹窗：无其他 pending 时直接显示，有 buy/checkin pending 时等流程结束后显示
+  if (state._chancePopup && !state.pending) {
+    state.pending = { kind: 'chance', event: state._chancePopup }
+    state._chancePopup = null
+  }
+
+  // 破产弹窗：有玩家破产时弹出提示（优先级最低，在其他弹窗之后）
+  if (state._bankruptPopup && !state.pending) {
+    state.pending = { kind: 'bankrupt', ...state._bankruptPopup }
+    state._bankruptPopup = null
+  }
+
+  // 彩票站弹窗：路过彩票站时弹出购买提示（优先级最低）
+  if (!state.pending) {
+    tryTriggerLotteryDeferred(state)
   }
 }
 
@@ -291,6 +347,16 @@ export function handleLanding(state, player) {
 export function nextTurn(state) {
   const alive = alivePlayers(state)
   if (alive.length === 0) return state
+
+  // 路障倒计时：每回合减1，到期清除（存 state，跨对局/跨房间隔离）
+  state.barriers = state.barriers || {}
+  for (const id of Object.keys(state.barriers)) {
+    state.barriers[id].turnsLeft -= 1
+    if (state.barriers[id].turnsLeft <= 0) {
+      delete state.barriers[id]
+      state.log.push(`🚧 「${TILES[Number(id)].name}」的路障消失了`)
+    }
+  }
 
   for (const id of Object.keys(state.closedBridges)) {
     state.closedBridges[id] -= 1
@@ -309,6 +375,8 @@ export function nextTurn(state) {
 
   if (next <= prev) {
     state.round += 1
+    // 新的拍卖周期（第 X1 回合）允许再次拍卖（否则整局只在第 10 回合拍一次）
+    if (state.round % 10 === 1) state.auctionThisRound = false
     // 资产曲线：每圈结束记录所有存活玩家的总资产
     if (!state.assetHistory) state.assetHistory = {}
     for (const p of state.players) {
@@ -363,17 +431,6 @@ export function nextTurn(state) {
   // 新回合：清除所有玩家的"本回合可升级地块"列表
   for (const p of state.players) {
     if (p.upgradableTiles) p.upgradableTiles = []
-  }
-
-  // 路障倒计时：每回合减1，到期清除
-  for (const t of TILES) {
-    if (t && t.barrierTurnsLeft > 0) {
-      t.barrierTurnsLeft -= 1
-      if (t.barrierTurnsLeft <= 0) {
-        t.barrier = null
-        state.log.push(`🚧 「${t.name}」的路障消失了`)
-      }
-    }
   }
 
   // 彩票开奖判定

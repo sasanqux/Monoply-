@@ -13,7 +13,8 @@ import {
   getRent,
   STOCKS,
   stockPortfolioValue,
-} from '../src/game/index.js'
+  CARDS,
+} from '../shared/game/index.js'
 
 function makeState(players, maxTurns = 40, startMoney = 5000) {
   return createInitialState({ players, maxTurns, startMoney })
@@ -40,14 +41,39 @@ console.log('▶ 地图数据完整性（52 格图结构）')
   for (let i = 1; i <= 52; i++) {
     const t = TILES[i]
     if (!t) { ok = false; break }
-    if (!t.next || !TILES[t.next]) { ok = false; break }
-    if (t.forks) for (const f of t.forks) if (!TILES[f]) { ok = false; break }
+    if (!t.neighbors) { ok = false; break }
+    for (const n of t.neighbors) if (!TILES[n]) { ok = false; break }
   }
-  check('每格 next / forks 指向有效格子', ok)
+  check('每格 neighbors 指向有效格子', ok)
   const starts = TILES.filter((t) => t && t.type === 'start')
   check('唯一起点 = 朝天门(id 1)', starts.length === 1 && starts[0].id === 1)
-  const forks = TILES.filter((t) => t && t.forks && t.forks.length)
-  console.log(`    起点 1 个 · 分岔路口 ${forks.length} 个：${forks.map((f) => f.name).join('、')}`)
+  // 分岔点 = 3 个及以上邻居的格子（2 邻居 = 直行，3+ 邻居 = 分岔）
+  const forks = TILES.filter((t) => t && t.neighbors && t.neighbors.length >= 3)
+  console.log(`    起点 1 个 · 分岔点 ${forks.length} 个：${forks.map((f) => f.name).join('、')}`)
+}
+
+console.log('▶ 决定先手顺序（掷骰比点）')
+{
+  const s0 = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+    { id: 'p3', name: 'C', isAI: true },
+  ], 40)
+  check('初始 phase=order', s0.phase === 'order')
+  // 模拟掷骰直到完成
+  let s = s0
+  let guard = 0
+  while (s.phase === 'order' && guard++ < 100) {
+    s = gameReducer(s, { type: 'ROLL_ORDER' })
+  }
+  check('掷骰后 phase 离开 order', s.phase === 'roll')
+  check('每个玩家都有掷骰记录', Object.keys(s.orderState.rolls).length === 3)
+  check('每个玩家掷了 3 颗骰子', Object.values(s.orderState.rolls).every(d => d.length === 3))
+  check('骰子值在 1-6 之间', Object.values(s.orderState.rolls).flat().every(n => n >= 1 && n <= 6))
+  // 验证顺序按点数降序
+  const totals = s.players.map(p => (s.orderState.rolls[p.id] || []).reduce((a, b) => a + b, 0))
+  const sorted = [...totals].sort((a, b) => b - a)
+  check('玩家按点数降序排列', JSON.stringify(totals) === JSON.stringify(sorted))
 }
 
 console.log('▶ 整局跑通（3 AI · 52 格 · 40 回合）')
@@ -60,7 +86,9 @@ console.log('▶ 整局跑通（3 AI · 52 格 · 40 回合）')
   let steps = 0
   while (state.status === 'playing' && steps < 20000) {
     let action
-    if (state.phase === 'fork' && state.pending?.kind === 'fork') {
+    if (state.pending?.kind === 'lottery_draw') {
+      action = { type: 'LOTTERY_DRAW_CLOSE' }
+    } else if (state.phase === 'fork' && state.pending?.kind === 'fork') {
       action = { type: 'CHOOSE_FORK', tileId: state.pending.chosen }
     } else if (state.phase === 'auction' && state.pending?.kind === 'auction') {
       const auctionPlayer = state.players[state.pending.turn]
@@ -97,33 +125,34 @@ console.log('▶ 朝天门打卡（落地打卡，不再发工资）')
   check('打卡满 3 次触发大礼包（+5000 + pending）', st.players[0].checkins === 0 && st.pending?.kind === 'checkin' && st.players[0].money === before + 5000)
 }
 
-console.log('▶ 分岔路口：朝天门随机走岔路（v2.4 不暂停）/ 其他分岔人类暂停')
+console.log('▶ 分岔路口：朝天门(3 邻居)是分岔点 / 其他分岔人类暂停')
 {
-  // 朝天门（v2.4）：人类也随机走岔路，不暂停、不弹窗
+  // 朝天门（新模型）：3 邻居 [32,50,49] → 分岔点，人类暂停选路
   const s = makeState([
     { id: 'p1', name: '我', isAI: false },
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   const a = s.players[0]
-  a.pos = 1 // 朝天门，forks=[50,49], next=50(洪崖洞)
-  const r = movePlayer(s, a, 1, 1) // 人类 → 随机选路，不暂停
-  check('人类从朝天门(出发)随机走岔路（不暂停）', r.paused === false && (a.pos === 50 || a.pos === 49))
-  check('朝天门随机走不碰弹子石(2)', a.pos !== 2)
-  check('朝天门随机走不产生 fork pending', s.pending?.kind !== 'fork')
-  // AI 自动选路：同上，不暂停
+  a.pos = 1 // 朝天门，neighbors=[50,49]
+  a.cameFrom = null // 初始无来路
+  const r = movePlayer(s, a, 1, null) // 人类 → 2 选项分岔，暂停
+  check('人类从朝天门出发遇分岔（暂停）', r.paused === true && s.pending?.kind === 'fork')
+  check('朝天门分岔选项 = [50,49]', JSON.stringify(s.pending?.options) === JSON.stringify([50, 49]))
+  // AI 自动选路：opts[0] = 50
   const s2 = makeState([
     { id: 'p1', name: 'A', isAI: true },
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   const b = s2.players[0]
   b.pos = 1
-  const r2 = movePlayer(s2, b, 1, 1)
-  check('AI 从朝天门(出发)随机走岔路（不暂停）', r2.paused === false && (b.pos === 50 || b.pos === 49))
+  b.cameFrom = null
+  const r2 = movePlayer(s2, b, 1, null)
+  check('AI 从朝天门出发自动选路（不暂停）', r2.paused === false && b.pos === 50)
 }
 
-console.log('▶ 随机分岔永不回头（需求1：不能走回头路，除非转向卡）')
+console.log('▶ 分岔永不回头（可选出口 = 邻居 - 来路）')
 {
-  // 石桥铺(13)：直行 14 / 分叉 51；来路 12(前驱) 不应被随机选中
+  // 石桥铺(13)：neighbors=[12,14,51]，来路 12 → 可选 [14,51]
   let ok = true
   for (let k = 0; k < 200; k++) {
     const s = makeState([
@@ -132,12 +161,14 @@ console.log('▶ 随机分岔永不回头（需求1：不能走回头路，除�
     ], 40)
     const a = s.players[0]
     a.pos = 13
+    a.cameFrom = 12
     const r = movePlayer(s, a, 1, 12) // 站在分岔格，来路 12
-    if (!r.paused || !s.pending || s.pending.chosen === 12) { ok = false; break }
+    if (!r.paused || !s.pending) { ok = false; break }
+    if (s.pending.options.includes(12)) { ok = false; break } // 来路不应在选项中
   }
-  check('200 次随机分岔均未选"来路"(12)', ok)
+  check('200 次分岔均未选"来路"(12)，可选=[14,51]', ok)
 
-  // 三峡广场(43)：直行 44 / 分叉 17、18；来路 42 不应被随机选中
+  // 三峡广场(43)：neighbors=[17,18]，来路 41（不在 neighbors）→ 可选 [17,18]
   ok = true
   for (let k = 0; k < 200; k++) {
     const s = makeState([
@@ -146,21 +177,23 @@ console.log('▶ 随机分岔永不回头（需求1：不能走回头路，除�
     ], 40)
     const a = s.players[0]
     a.pos = 43
-    const r = movePlayer(s, a, 1, 42) // 站在分岔格，来路 42
-    if (!r.paused || !s.pending || s.pending.chosen === 42) { ok = false; break }
+    a.cameFrom = 41
+    const r = movePlayer(s, a, 1, 41) // 站在分岔格，来路 41
+    if (!r.paused || !s.pending) { ok = false; break }
+    if (s.pending.options.includes(41)) { ok = false; break } // 来路不应在选项中
   }
-  check('200 次随机分岔均未选"来路"(42)', ok)
+  check('200 次分岔均未选"来路"(41)，可选=[17,18]', ok)
 
-  // 转向卡例外：direction=-1 时允许反向走（predecessorOf）
+  // 化龙桥(44)：neighbors=[52,45]，来路 52 → 可选 [45]（直行，不暂停）
   const s = makeState([
-    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p1', name: '我', isAI: false },
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   const a = s.players[0]
-  a.pos = 50 // 洪崖洞
-  a.direction = -1
-  const r = movePlayer(s, a, 1, 50)
-  check('转向卡反向：洪崖洞(50) 回退到朝天门(1)', r.paused === false && a.pos === 1)
+  a.pos = 44 // 化龙桥
+  a.cameFrom = 52 // 从大坪来
+  const r = movePlayer(s, a, 1, 52)
+  check('化龙桥来路 52 → 直行 [45]（不暂停）', r.paused === false && a.pos === 45)
 }
 
 console.log('▶ 分岔路口：CHOOSE_FORK 续走 + 链式分岔')
@@ -188,7 +221,7 @@ console.log('▶ 分岔路口：CHOOSE_FORK 续走 + 链式分岔')
   check('选直行后走到 16（14→15→16），不多走', s.players[0].pos === 16)
   check('续走后落地结算', s.phase === 'landed')
 
-  // 三峡广场(43) 直行 44 / 分叉 17、18；选 17 后剩 4 步：17→18→19(磁器口 分岔) 再暂停
+  // 三峡广场(43) neighbors=[17,18]；选 17(沙坪坝) 后：17 的 neighbors=[16,43]，来路 43 → 直行 [16]
   s = makeState([
     { id: 'p1', name: '我', isAI: false },
     { id: 'p2', name: 'B', isAI: true },
@@ -198,13 +231,12 @@ console.log('▶ 分岔路口：CHOOSE_FORK 续走 + 链式分岔')
   s.players[0].pos = 43
   s.players[0].walkPath = [43]
   s = gameReducer(s, { type: 'CHOOSE_FORK', tileId: 17 })
-  // 链式分岔：走 1 步后到分岔格，应该暂停（phase='fork'）
-  check('链式分岔：CHOOSE_FORK 后进入 step 阶段', s.phase === 'step')
-  // 继续 STEP 走到磁器口(19)，应再次暂停
+  // 选路后进入 step 阶段
+  check('选路后进入 step 阶段', s.phase === 'step')
+  // 继续 STEP：走到 17(沙坪坝)，来路 43，直行 [16] → 不再暂停
   let guard = 0;
   while (s.phase === 'step' && guard++ < 10) s = gameReducer(s, { type: 'STEP' })
-  check('链式分岔：走到磁器口(19)再次暂停', s.players[0].pos === 19 && s.phase === 'fork')
-  check('链式分岔 pending 在磁器口', s.pending?.tileId === 19)
+  check('选直行后落点 14（中梁山）', s.players[0].pos === 14 && s.phase === 'landed')
 
   // 朝天门(1) 分岔选「解放碑(49)」
   s = makeState([
@@ -319,9 +351,8 @@ console.log('▶ 卡片效果')
   state.players[1].properties = [2] // p2 拥有弹子石
   state.players[0].hand = [{ id: 'c6', type: 'barrier', name: '路障卡', desc: '', icon: '' }]
   state = gameReducer(state, { type: 'USE_CARD', cardId: 'c6', target: { tileId: 2 } })
-  check('路障卡放置成功', TILES[2].barrier === 'p1')
-  // 清理路障（TILES 是模块级常量，测试间会污染）
-  delete TILES[2].barrier
+  check('路障卡放置成功（存 state.barriers，不污染全局 TILES）', state.barriers[2]?.owner === 'p1')
+  check('路障不影响其他对局（TILES 无 barrier 字段）', TILES[2].barrier === undefined)
 
   // 摩托卡
   state.players[0].cardUsed = false
@@ -376,17 +407,18 @@ console.log('▶ 交通工具')
   check('掷骰/落地结算不崩溃', r2.status === 'playing' || r2.status === 'finished')
 }
 
-console.log('▶ 转向卡反向移动（方向 bug 回归）')
+console.log('▶ 无向图走棋（无方向概念，只看来路）')
 {
+  // 弹子石(2) neighbors=[49,3]：来路 49 → 可选 [3]（直行）
   const s = makeState([
     { id: 'p1', name: 'A', isAI: true },
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
   const a = s.players[0]
-  a.pos = 2 // 弹子石，新拓扑反向走 2→49(解放碑)→48(较场口)（49.next=2）
-  a.direction = -1
-  const r = movePlayer(s, a, 2, 2)
-  check('反向移动 2 步到达 48', r.paused === false && a.pos === 48)
+  a.pos = 2 // 弹子石
+  a.cameFrom = 49 // 从解放碑来
+  const r = movePlayer(s, a, 1, 49)
+  check('弹子石(2)来路 49 → 直行到上新街(3)', r.paused === false && a.pos === 3)
 }
 
 console.log('▶ AI 会用卡/乘轻轨')
@@ -419,7 +451,7 @@ console.log('▶ AI 会用卡/乘轻轨')
     { id: 'p1', name: 'A', isAI: true },
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
-  s.players[0].hand = [{ id: 'c6', type: 'reverse', name: '转向卡', desc: '', icon: '' }]
+  s.players[0].hand = [{ id: 'c6', type: 'shield', name: '免租卡', desc: '', icon: '' }]
   s.phase = 'landed'
   const a6 = aiDecide(s, 'p1')
   check('AI 无适用操作 → 结束回合', a6?.type === 'END_TURN')
@@ -440,7 +472,8 @@ console.log('▶ reducer 能处理 Proxy（浏览器真实场景）')
     get(t, k) { return Reflect.get(t, k) },
     ownKeys(t) { return Reflect.ownKeys(t) },
   })
-  proxy.players[0].pos = 2 // 放到非分岔格，避免人类在朝天门暂停
+  proxy.players[0].pos = 2 // 弹子石，neighbors=[3,32]
+  proxy.players[0].cameFrom = 32 // 从广阳岛来 → 直行往 3
   let didThrow = false
   let s
   try {
@@ -457,6 +490,32 @@ console.log('▶ reducer 能处理 Proxy（浏览器真实场景）')
   check('不抛 DataCloneError', !didThrow)
 }
 
+console.log('▶ 路障卡放置')
+{
+  let s = makeState([
+    { id: 'p1', name: '我', isAI: false },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  s.players.forEach(p => p.firstTurn = false) // 解除第一回合限制
+  s.phase = 'roll' // 确保不在 order 阶段
+  // 给玩家一张路障卡
+  const barrierCard = CARDS.find(c => c.type === 'barrier')
+  s.players[0].hand.push({ ...barrierCard, id: 'test-barrier' })
+  // 使用路障卡 → 目标地块(2 弹子石)
+  s = gameReducer(s, { type: 'USE_CARD', cardId: 'test-barrier', target: { tileId: 2 } })
+  check('路障放置成功', s.barriers[2] && s.barriers[2].owner === 'p1')
+  check('路障3回合后消失', s.barriers[2].turnsLeft === 3)
+  // 同一格不能放第二个路障
+  s.players[0].hand.push({ ...barrierCard, id: 'test-barrier-2' })
+  const r1 = gameReducer(s, { type: 'USE_CARD', cardId: 'test-barrier-2', target: { tileId: 2 } })
+  check('同一格不能放第二个路障', !r1.barriers[2] || r1.barriers[2].turnsLeft === 3)
+  // 非地产格不能放
+  s.players[0].hand.push({ ...barrierCard, id: 'test-barrier-3' })
+  const startTile = TILES.find(t => t && t.type === 'start')
+  const r2 = gameReducer(s, { type: 'USE_CARD', cardId: 'test-barrier-3', target: { tileId: startTile.id } })
+  check('非地产格不能放路障', !r2.barriers[startTile.id])
+}
+
 console.log('▶ 调试 action（DebugPanel 用）')
 {
   let s = makeState([
@@ -471,7 +530,7 @@ console.log('▶ 调试 action（DebugPanel 用）')
   s = gameReducer(s, { type: 'SKIP_BUY' })
   s = gameReducer(s, { type: 'DEBUG_MONEY', playerId: 'p1', amount: 3000 })
   check('调试加钱 +3000', s.players[0].money === 8000)
-  s = gameReducer(s, { type: 'DEBUG_GIVE', playerId: 'p1', kind: 'card', id: 'reverse' })
+  s = gameReducer(s, { type: 'DEBUG_GIVE', playerId: 'p1', kind: 'card', id: 'shield' })
   check('调试送卡片', s.players[0].hand.length === 3) // 初始2 + 送1
   s = gameReducer(s, { type: 'DEBUG_PROPERTY', playerId: 'p1', tileId: 3, level: 3 })
   check('调试强买+升满 上新街', s.players[0].properties.includes(3) && s.players[0].levels[3] === 3)
@@ -499,7 +558,7 @@ console.log('▶ 事件格（chance）落地触发')
   check('踩中事件格产生事件日志', r.log.length > logLen)
 }
 
-console.log('▶ 免罪卡豁免租金')
+console.log('▶ 免租卡豁免租金')
 {
   const s = makeState([
     { id: 'p1', name: 'A', isAI: true },
@@ -510,38 +569,34 @@ console.log('▶ 免罪卡豁免租金')
   b.properties = [2] // 弹子石归 B
   b.levels = { 2: 0 }
   a.money = 5000
-  a.shield = true
+  // 清空手牌，只留一张免租卡（AI 自动使用）
+  const shieldCard = CARDS.find(c => c.type === 'shield')
+  a.hand = [{ ...shieldCard, id: 'test-shield' }]
   const before = a.money
   const r = gameReducer(s, { type: 'DEBUG_TELEPORT', playerId: 'p1', tileId: 2 })
-  check('免罪卡豁免租金不扣钱', r.players[0].money === before)
-  check('免罪卡被消耗（shield 置 false）', r.players[0].shield === false)
+  check('免租卡豁免租金不扣钱', r.players[0].money === before)
+  check('免租卡被消耗（从手牌移除）', !r.players[0].hand.some(c => c.id === 'test-shield'))
 }
 
-console.log('▶ 化龙桥(44)选大坪(52) 链式分岔')
+console.log('▶ 大坪→化龙桥→两路口（直行通路）')
 {
+  // 大坪(52) neighbors=[51,44]：从 51 来 → 可选 [44]（直行）
   let s = makeState([
     { id: 'p1', name: '我', isAI: false },
     { id: 'p2', name: 'B', isAI: true },
   ], 40)
-  s.phase = 'fork'
-  s.pending = { kind: 'fork', tileId: 44, options: [45, 52], chosen: 52, stepsLeft: 3, cameFrom: 44 }
-  s.players[0].pos = 44
-  s.players[0].walkPath = [44]
-  s = gameReducer(s, { type: 'CHOOSE_FORK', tileId: 52 })
-  // STEP 走到分岔暂停
-  let guard = 0
-  while (s.phase === 'step' && s.stepsRemaining > 0 && guard++ < 20) {
-    s = gameReducer(s, { type: 'STEP' })
-  }
-  // 选大坪后会绕回化龙桥再次遇到分岔（链式），这是正确行为
-  check('化龙桥选大坪：链式分岔再次暂停', s.phase === 'fork' && s.players[0].pos === 44)
-  // 再次选路（这次选直行 45）
-  s = gameReducer(s, { type: 'CHOOSE_FORK', tileId: 45 })
-  guard = 0
-  while (s.phase === 'step' && s.stepsRemaining > 0 && guard++ < 20) {
-    s = gameReducer(s, { type: 'STEP' })
-  }
-  check('化龙桥再次选直行：落点45以上', s.players[0].pos >= 45 && s.phase === 'landed')
+  s.players[0].pos = 52
+  s.players[0].cameFrom = 51
+  s.phase = 'roll'
+  s.players[0].walkPath = [52]
+  s = gameReducer(s, { type: 'DEBUG_MOVE', playerId: 'p1', steps: 1 })
+  check('大坪(52)来路 51 → 直行到化龙桥(44)', s.players[0].pos === 44)
+
+  // 化龙桥(44) neighbors=[52,45]：从 52 来 → 可选 [45]（直行，不暂停）
+  const a = s.players[0]
+  a.cameFrom = 52 // 从大坪来
+  const r = movePlayer(s, a, 1, 52)
+  check('化龙桥(44)从大坪来 → 直行到两路口(45)', r.paused === false && a.pos === 45)
 }
 
 console.log('▶ 卡片积分与商店')
@@ -560,10 +615,10 @@ console.log('▶ 卡片积分与商店')
   s.pending = null
   s = gameReducer(s, { type: 'SKIP_BUY' })
   check('路径经过寸滩弹卡片商店', s.pending?.kind === 'shop' && s.pending.tileId === 31)
-  // 买一张转向卡（30 积分）
+  // 买一张免租卡（30 积分）
   s.players[0].points = 30
-  s = gameReducer(s, { type: 'SHOP_BUY', cardId: 'reverse' })
-  check('商店购得转向卡扣 30 积分', s.players[0].points === 0 && s.players[0].hand.length === 3) // 初始2 + 买1
+  s = gameReducer(s, { type: 'SHOP_BUY', cardId: 'shield' })
+  check('商店购得免租卡扣 30 积分', s.players[0].points === 0 && s.players[0].hand.length === 3) // 初始2 + 买1
   // 积分不足不能买
   s.players[0].points = 10
   s = gameReducer(s, { type: 'SHOP_BUY', cardId: 'monster' })
@@ -730,7 +785,7 @@ console.log('▶ 神仙系统')
   ], 40)
   // 填满手牌
   s.players[0].hand = []
-  for (let i = 0; i < 10; i++) s.players[0].hand.push({ id: `f${i}`, type: 'shield', name: '免罪卡', desc: '', icon: '' })
+  for (let i = 0; i < 10; i++) s.players[0].hand.push({ id: `f${i}`, type: 'shield', name: '免租卡', desc: '', icon: '' })
   const ptsBefore = s.players[0].points || 0
   s = gameReducer(s, { type: 'DEBUG_FORCE_GOD', playerId: 'p1', godId: 'trickster' })
   check('崔斯特手牌满时给50积分/张', (s.players[0].points || 0) - ptsBefore === 200)
@@ -745,9 +800,9 @@ console.log('▶ 每回合限1张卡 + 路障触发')
   ], 40))
   s.players[0].hand = [
     { id: 'u1', type: 'steal', name: '抢夺卡', desc: '', icon: '' },
-    { id: 'u2', type: 'shield', name: '免罪卡', desc: '', icon: '' },
+    { id: 'u2', type: 'shield', name: '免租卡', desc: '', icon: '' },
   ]
-  s.players[1].hand = [{ id: 'p2c1', type: 'shield', name: '免罪卡', desc: '', icon: '' }] // p2 有手牌供抢夺
+  s.players[1].hand = [{ id: 'p2c1', type: 'shield', name: '免租卡', desc: '', icon: '' }] // p2 有手牌供抢夺
   s.phase = 'landed'
   s = gameReducer(s, { type: 'USE_CARD', cardId: 'u1' })
   // 抢夺卡：消耗 u1，从 p2 抢 1 张 → 手牌仍为 2（u2 + 抢来的 p2c1）
@@ -764,11 +819,11 @@ console.log('▶ 每回合限1张卡 + 路障触发')
   s.pending = null
   s = gameReducer(s, { type: 'END_TURN' })
   check('下回合重置用卡标志', s.players[0].cardUsed === false)
-  // 下回合又能用卡了
-  s.players[0].hand = [{ id: 'u3', type: 'shield', name: '免罪卡', desc: '', icon: '' }]
+  // 免租卡不再主动使用（改为被动触发），手牌保留
+  s.players[0].hand = [{ id: 'u3', type: 'shield', name: '免租卡', desc: '', icon: '' }]
   const l2 = s.log.length
   s = gameReducer(s, { type: 'USE_CARD', cardId: 'u3' })
-  check('下回合能用卡', s.players[0].hand.length === 0)
+  check('免租卡不再主动使用（手牌保留）', s.players[0].hand.length === 1)
 
   // 路障触发：p1 放路障，p2 踩中扣分并截停
   s = makeState([
@@ -777,9 +832,10 @@ console.log('▶ 每回合限1张卡 + 路障触发')
   ], 40)
   s.players[0].properties = [2] // p1 拥有弹子石
   s.players[1].properties = [4] // p2 拥有南山
-  // 在 p2 的地(南山 id4)放路障
-  TILES[4].barrier = 'p1'
-  s.players[1].pos = 3 // p2 在上新街
+  // 在 p2 的地(南山 id4)放路障（state.barriers，随对局隔离）
+  s.barriers[4] = { owner: 'p1', turnsLeft: 3 }
+  s.players[1].pos = 3 // 上新街，neighbors=[2,4]
+  s.players[1].cameFrom = 2 // 从弹子石来 → 往南山(4)走
   s.players[1].money = 5000
   s.players[1].points = 100
   const ptsP2Before = s.players[1].points
@@ -792,8 +848,6 @@ console.log('▶ 每回合限1张卡 + 路障触发')
   check('路障扣分50（p2 100→90，含南山积分40）', s.players[1].points === ptsP2Before - 50 + (TILES[4].points || 0))
   check('路障罚款主人得50', s.players[0].points === ptsP1Before + 50)
   check('路障截停不再前进（停在 id4）', s.players[1].pos === 4)
-  // 清理路障（TILES 是模块级常量，测试间会污染）
-  delete TILES[4].barrier
 }
 
 console.log('▶ 新规则：初始卡组 / 第一回合禁卡 / 载具到期 / 每5回合送卡')
@@ -888,6 +942,27 @@ console.log('▶ 彩票系统')
   s = gameReducer(s, { type: 'LOTTERY_CLOSE' })
   check('关闭彩票弹窗', s.pending === null)
 
+  // 批量购买彩票
+  s = makeState([{id:'p1',name:'A',isAI:true},{id:'p2',name:'B',isAI:true}], 40)
+  s.players[0].money = 5000
+  s.pending = { kind: 'lottery', tileId: 45 }
+  s.phase = 'landed'
+  s = gameReducer(s, { type: 'BUY_TICKETS', numbers: [10, 20, 30] })
+  check('批量购买 3 张扣 ¥1500', s.players[0].money === 3500)
+  check('奖池增加 ¥1500（10000→11500）', s.lottery.pool === 11500)
+  check('记录 3 个号码', s.lottery.pickedNumbers['p1']?.length === 3)
+  check('批量购买后本回合不能再买', s.lotteryBoughtTurn === true)
+
+  // 批量购买时钱不够：能买几张买几张
+  s = gameReducer(s, { type: 'LOTTERY_CLOSE' })
+  s.lotteryBoughtTurn = false
+  s.players[0].money = 800
+  s.lottery.pickedNumbers = {}
+  s.pending = { kind: 'lottery', tileId: 45 }
+  s = gameReducer(s, { type: 'BUY_TICKETS', numbers: [1, 2, 3] })
+  check('钱不够时只买了 1 张（¥800→¥300）', s.players[0].money === 300)
+  check('只记录了 1 个号码', s.lottery.pickedNumbers['p1']?.length === 1)
+
   // 完整开奖流程：购买 → 推进回合到第5回合 → 开奖
   s = makeState([{id:'p1',name:'A',isAI:true},{id:'p2',name:'B',isAI:true}], 40)
   s.players.forEach(p => p.firstTurn = false)
@@ -963,6 +1038,229 @@ console.log('▶ 股票系统')
   s.pending = null
   s = gameReducer(s, { type: 'END_TURN' }) // END_TURN → nextTurn → round+1 → tick
   check('圈末股价变动', s.stockRuntime.cqbj.current !== priceBefore || s.stockRuntime.cqca.current !== 20)
+}
+
+console.log('▶ 神仙格附身弹窗')
+{
+  // 神仙格(18 重庆大学)：附身 → 弹出 god 弹窗
+  // 注意：崔斯特(即时型)不附身，无 god 弹窗；土地公直接抢夺地产（无 buy pending）
+  let s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  s = gameReducer(s, { type: 'DEBUG_TELEPORT', playerId: 'p1', tileId: 18 })
+  const hasGod = s.players[0].god != null
+  check('踩神仙格玩家被附身或触发崔斯特', hasGod || s.log.some(l => l.includes('崔斯特')))
+
+  if (s.pending?.kind === 'buy') {
+    // 附身非土地公神：先 buy pending，购买后触发 god pending
+    s = gameReducer(s, { type: 'BUY_PROPERTY' })
+    if (hasGod) {
+      check('购买后触发 god pending', s.pending?.kind === 'god')
+    } else {
+      // 崔斯特：不附身，无 god pending
+      check('崔斯特无 god pending', s.pending?.kind !== 'god')
+    }
+  } else if (s.pending?.kind === 'god') {
+    // 附身土地公：直接抢夺地产，立即触发 god pending
+    check('土地公抢夺后直接触发 god pending', true)
+  } else {
+    check('神仙格触发 god 或 buy pending', false)
+  }
+
+  if (s.pending?.kind === 'god') {
+    check('god pending 包含正确 godId', s.pending?.godId != null)
+    s = gameReducer(s, { type: 'GOD_CLOSE' })
+    check('GOD_CLOSE 清除 god pending', s.pending === null)
+  }
+}
+
+console.log('▶ 奇遇事件弹窗')
+{
+  // 奇遇格(6)：落地触发事件 → 产生 chance pending
+  let s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  s = gameReducer(s, { type: 'DEBUG_TELEPORT', playerId: 'p1', tileId: 6 })
+  check('踩奇遇格触发 chance pending', s.pending?.kind === 'chance')
+  check('chance pending 包含事件信息', s.pending?.event?.text != null && s.pending?.event?.icon != null)
+  // 关闭弹窗
+  s = gameReducer(s, { type: 'CHANCE_CLOSE' })
+  check('CHANCE_CLOSE 清除 chance pending', s.pending === null)
+}
+
+console.log('▶ 彩票站路过自动弹窗')
+{
+  // 彩票站(45 两路口)：路过时触发 lottery pending
+  let s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  // 走到 44（从大坪52来），再走 1 步到 45（彩票站）
+  s.players[0].pos = 44
+  s.players[0].cameFrom = 52
+  s.phase = 'roll'
+  s.players[0].walkPath = [44]
+  s = gameReducer(s, { type: 'DEBUG_MOVE', playerId: 'p1', steps: 1 })
+  // 45 是彩票站也是地产，购买后应触发 lottery
+  if (s.pending?.kind === 'buy') {
+    s = gameReducer(s, { type: 'BUY_PROPERTY' })
+    check('购买彩票站后触发 lottery pending', s.pending?.kind === 'lottery')
+  } else if (s.pending?.kind === 'lottery') {
+    check('踩彩票站触发 lottery pending', true)
+  } else {
+    check('踩彩票站触发 lottery pending', false)
+  }
+}
+
+console.log('▶ 彩票站路过触发（不踩）')
+{
+  // 从 39 走 3 步：39→40→41(彩票站)→19，路过 41 但落到 19（无主地产）
+  let s = makeState([
+    { id: 'p1', name: 'A', isAI: false },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  s.players[0].pos = 39
+  s.players[0].cameFrom = 38
+  s.phase = 'roll'
+  s.players[0].walkPath = [39]
+  s = gameReducer(s, { type: 'DEBUG_MOVE', playerId: 'p1', steps: 3 })
+  // 落到 19 触发 buy pending
+  check('路过彩票站后落地产格：buy pending', s.pending?.kind === 'buy')
+  // 买地后 → 触发彩票弹窗
+  s = gameReducer(s, { type: 'BUY_PROPERTY' })
+  check('买地后触发彩票弹窗', s.pending?.kind === 'lottery')
+}
+
+console.log('▶ 破产弹窗')
+{
+  // 玩家破产时触发 bankrupt pending
+  let s = makeState([
+    { id: 'p1', name: 'A', isAI: true },
+    { id: 'p2', name: 'B', isAI: true },
+  ], 40)
+  // 让 p1 踩到 p2 的高租地，破产
+  s.players[1].properties = [2] // p2 拥有弹子石
+  s.players[1].levels = { 2: 3 } // 3级
+  s.players[0].pos = 1 // p1 在朝天门
+  s.players[0].money = 100 // 很少的钱
+  s.players[0].cameFrom = 32
+  s.phase = 'roll'
+  s.players[0].walkPath = [1]
+  s = gameReducer(s, { type: 'DEBUG_MOVE', playerId: 'p1', steps: 1 }) // 走到弹子石(2)
+  // 检查是否破产（租金 800×3级×1.5组合=3600，p1 只有 100）
+  if (s.players[0].bankrupt) {
+    check('破产触发 bankrupt pending', s.pending?.kind === 'bankrupt')
+    check('bankrupt pending 包含玩家名', s.pending?.playerName === 'A')
+    s = gameReducer(s, { type: 'BANKRUPT_CLOSE' })
+    check('BANKRUPT_CLOSE 清除 bankrupt pending', s.pending === null)
+  } else {
+    // 如果没破产（比如卖地自救了），至少验证没有异常
+    check('玩家未破产（卖地自救）', s.players[0].alive)
+  }
+}
+
+console.log('\n▶ 银行贷款系统')
+{
+  // 基础借款
+  let s = makeState([{ id: 'p1', name: 'A', isAI: false }], 40, 20000)
+  const assets = totalAssets(s.players[0])
+  s = gameReducer(s, { type: 'TAKE_LOAN', amount: 5000 })
+  const a = s.players[0]
+  check('借款成功：现金 +5000', a.money === 25000)
+  check('借款成功：贷款记录 ¥5000', a.loan === 5000)
+  check('借款成功：待还 = 5000×1.2 = 6000', a.loanRepay === 6000)
+  check('借款成功：到期回合 = 当前+10', a.loanDue === 11)
+
+  // 可贷额度 = 总资产×50%
+  check('可贷额度 = 总资产×50%', Math.floor(assets * 0.5) === 10000)
+
+  // 有贷款时额度减少（净资产 = 25000 - 6000 = 19000，可贷 = 9500 - 5000 = 4500）
+  // 借 5000 超额 → 实际只借到 4500（上限），总贷款 = 9500
+  const s2 = gameReducer(s, { type: 'TAKE_LOAN', amount: 5000 })
+  check('有贷款时超额借款被截断', s2.players[0].loan === 9500)
+  const s2b = gameReducer(s, { type: 'TAKE_LOAN', amount: 4000 })
+  check('有贷款时额度内可借', s2b.players[0].loan === 9000)
+
+  // 部分还款
+  s = gameReducer(s, { type: 'REPAY_LOAN', amount: 2000 })
+  check('部分还款：待还减少', s.players[0].loanRepay === 4000)
+
+  // 还清
+  s = gameReducer(s, { type: 'REPAY_LOAN', amount: 4000 })
+  check('还清：贷款清零', s.players[0].loan === 0 && s.players[0].loanRepay === 0 && s.players[0].loanDue === 0)
+
+  // 还清后可再借
+  s = gameReducer(s, { type: 'TAKE_LOAN', amount: 3000 })
+  check('还清后可再借', s.players[0].loan === 3000)
+
+  // 到期扣款（现金够）
+  s = makeState([{ id: 'p1', name: 'A', isAI: false }], 40, 20000)
+  s.players[0].loan = 5000
+  s.players[0].loanRepay = 6000
+  s.players[0].loanDue = 3
+  s.players[0].money = 10000
+  s.round = 3
+  s.phase = 'roll'
+  s = gameReducer(s, { type: 'ROLL_DICE' })
+  check('到期扣款（现金够）：贷款清零', s.players[0].loan === 0 && s.players[0].loanRepay === 0)
+  check('到期扣款（现金够）：现金-6000', s.players[0].money === 4000)
+
+  // 到期扣款（现金不够 → 强制变卖）
+  s = makeState([{ id: 'p1', name: 'A', isAI: false }], 40, 20000)
+  s.players[0].loan = 1000
+  s.players[0].loanRepay = 1200
+  s.players[0].loanDue = 3
+  s.players[0].money = 500
+  s.players[0].properties = [7] // 南彭 price=2000, sell=800
+  s.players[0].levels = { 7: 0 }
+  s.round = 3
+  s.phase = 'roll'
+  s = gameReducer(s, { type: 'ROLL_DICE' })
+  check('到期强制变卖：地产被卖', !s.players[0].properties.includes(7))
+  check('到期强制变卖：贷款清零', s.players[0].loan === 0 && s.players[0].loanRepay === 0)
+
+  // 总资产减去贷款
+  s = makeState([{ id: 'p1', name: 'A', isAI: false }], 40, 20000)
+  s.players[0].loan = 5000
+  s.players[0].loanRepay = 6000
+  check('总资产减去贷款', totalAssets(s.players[0]) === 20000 - 6000)
+
+  // 到期混合还款（现金+卖地够还）
+  s = makeState([{ id: 'p1', name: 'A', isAI: false }], 40, 20000)
+  s.players[0].loan = 5000
+  s.players[0].loanRepay = 6000
+  s.players[0].loanDue = 3
+  s.players[0].money = 2000
+  s.players[0].properties = [7, 9, 2, 3] // sell: 800+800+1600+1600=4800
+  s.players[0].levels = { 7: 0, 9: 0, 2: 0, 3: 0 }
+  s.round = 3
+  s.phase = 'roll'
+  s = gameReducer(s, { type: 'ROLL_DICE' })
+  check('到期混合还款：贷款清零', s.players[0].loan === 0 && s.players[0].loanRepay === 0)
+  check('到期混合还款：剩余现金正确', s.players[0].money === 2000 + 4800 - 6000)
+
+  // 到期混合还款（卖光+现金仍不够 → 违约挂账）
+  s = makeState([{ id: 'p1', name: 'A', isAI: false }], 40, 20000)
+  s.players[0].loan = 5000
+  s.players[0].loanRepay = 6000
+  s.players[0].loanDue = 3
+  s.players[0].money = 1000
+  s.players[0].properties = [7] // sell=800, 总共 1800 < 6000
+  s.players[0].levels = { 7: 0 }
+  s.round = 3
+  s.phase = 'roll'
+  s = gameReducer(s, { type: 'ROLL_DICE' })
+  check('到期违约：剩余挂账', s.players[0].loanRepay === 6000 - 1000 - 800)
+  check('到期违约：现金归零', s.players[0].money === 0)
+
+  // 贷款期间不能移动中借款（阶段保护）
+  s = makeState([{ id: 'p1', name: 'A', isAI: false }], 40, 20000)
+  s.phase = 'step'
+  s.stepsRemaining = 3
+  const sLoan = gameReducer(s, { type: 'TAKE_LOAN', amount: 5000 })
+  check('移动中不能贷款', sLoan.players[0].loan === 0)
 }
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`)

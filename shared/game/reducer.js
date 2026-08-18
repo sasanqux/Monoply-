@@ -42,14 +42,14 @@
  * @typedef {PendingBuy|PendingAuction|PendingFork|PendingShop|PendingMetro|PendingCheckin|null} Pending
  */
 import { TILES, START_MONEY_DEFAULT, isPropertyTile, isMetro, METRO_FEE } from './board.js'
-import { rollForPlayer, movePlayer, forkNeedsReverse, stepOneTile } from './movement.js'
-import { addMoney } from './bank.js'
-import { upgradeCost, mortgageTile, unmortgageTile } from './property.js'
+import { rollForPlayer, movePlayer, stepOneTile } from './movement.js'
+import { addMoney, takeLoan, repayLoan, processLoanDue, loanLimit } from './bank.js'
+import { upgradeCost, mortgageTile, unmortgageTile, totalAssets } from './property.js'
 import { applyCard, cardTargetKind, CARDS, randomCard } from './card.js'
 import { handleLanding, nextTurn, currentPlayer } from './turn.js'
 import { checkBankrupt } from './gameOver.js'
 import { GODS } from './god.js'
-import { initLotteryState, buyTicket, tryTriggerLottery } from './lottery.js'
+import { initLotteryState, buyTicket, buyTickets, tryTriggerLottery, LOTTERY_TILES } from './lottery.js'
 import { initStockRuntime, buyStock, sellStock, tickStockPrices, applyBlackStock, applyRedStock } from './stock.js'
 
 // 玩家配色（方案 B 纯色板）：避开地图属性色（地产黑/景点绿/轻轨青/商圈紫/起点棕/事件黄）
@@ -91,11 +91,8 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
     levels: {},
     hand: [],
     vehicle: 'walk',
-    shield: false,
     skipTurns: 0,
     ferry: false,
-    direction: 1,
-    reverse: false,
     checkins: 0, // 朝天门打卡次数（满 3 次领大礼包）
     points: 0, // 卡片积分（踩格获得，可在商店买卡）
     jailLeft: 0,
@@ -108,10 +105,14 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
     god: null, // 附身神仙（预留）
     _marathon: false, // 马拉松双倍步数
     _rentBonus: 0, // 八中租金加成
+    cameFrom: null, // 上回合停留此格时的来路（跨回合保持方向）
     walkPath: [1],
     stockHoldings: {}, // 股票持仓 {code: shares}
     upgradableTiles: [], // 本回合可升级的地块 id 数组（踩到自己的地后加入）
     mortgaged: {}, // 抵押中的地产 { tileId: true }
+    loan: 0, // 贷款本金（未还）
+    loanDue: 0, // 到期回合（0=无贷款）
+    loanRepay: 0, // 待还总额（含利息）
   }))
 
   const cardSeq = 0
@@ -121,11 +122,12 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
     settings: { maxTurns, startMoney },
     round: 1,
     turnIndex: 0,
-    phase: 'roll',
+    phase: 'order', // 开局先决定行动顺序
     dice: null,
     pending: null,
     winnerId: null,
     closedBridges: {},
+    barriers: {}, // 路障 { tileId: { owner, turnsLeft } } —— 放 state 里随对局隔离（不写 TILES 全局）
     auctionThisRound: false, // 本轮（10 回合周期）是否已拍卖
     shopShownTurn: false, // 本回合是否已弹过卡片商店
     lotteryBoughtTurn: false, // 本回合是否已买过彩票
@@ -135,11 +137,14 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
     _cardSeq: cardSeq, // 卡片 ID 自增序列（替代 Date.now()，保证 reducer 纯函数性）
     assetHistory: {}, // { playerId: [每回合总资产] } 用于资产曲线图
     players: playerList,
+    orderState: { // 决定先手顺序
+      rolls: {}, // { playerId: [d1, d2, d3] }
+      index: 0, // 当前掷骰玩家下标
+      done: false, // 是否完成
+    },
     log: [
-      `🎮 重庆大富翁！${players.map((p) => p.name).join('、')}，每人起始资金 ¥${startMoney}`,
-      `🏙️ 绕重庆主城一圈 · 52 格 · 7 个分岔路口，路线你定`,
-      `🚈 轻轨站可购买 · 乘轻轨去别的站`,
-      `第 1 回合，轮到 ${players[0].name}`,
+      `🎮 大富翁——重庆之旅！${players.map((p) => p.name).join('、')}，每人起始资金 ¥${startMoney}`,
+      `🎲 开局掷骰决定顺序（3 颗骰子，点数大的先手）`,
     ],
   }
 
@@ -154,6 +159,59 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
   return s
 }
 
+// 决定先手顺序：按骰子总点数降序排列玩家，同点数则相关玩家加赛
+function resolveOrder(s) {
+  const os = s.orderState
+  const rolls = os.rolls
+
+  // 计算每个玩家的点数总和
+  const totals = s.players.map(p => ({
+    id: p.id,
+    name: p.name,
+    total: (rolls[p.id] || []).reduce((a, b) => a + b, 0),
+  }))
+
+  // 按点数降序排列
+  totals.sort((a, b) => b.total - a.total)
+
+  // 检查是否有同分（需要加赛）
+  const tieGroups = {}
+  for (const t of totals) {
+    tieGroups[t.total] = (tieGroups[t.total] || 0) + 1
+  }
+  const ties = Object.entries(tieGroups).filter(([, n]) => n > 1)
+
+  if (ties.length > 0) {
+    // 有同分：只有同分的玩家加赛
+    const tiedTotals = ties.map(([t]) => Number(t))
+    const tiedPlayers = totals.filter(t => tiedTotals.includes(t.total))
+    // 重置这些玩家的掷骰状态
+    for (const t of tiedPlayers) {
+      delete rolls[t.id]
+    }
+    // 找出这些玩家在原始 players 中的下标最小值，设为新的 index
+    const tiedIds = new Set(tiedPlayers.map(t => t.id))
+    os.index = s.players.findIndex(p => tiedIds.has(p.id))
+    const names = tiedPlayers.map(t => t.name).join('、')
+    s.log.push(`⚖️ ${names} 同分（${ties[0][0]} 点），加赛掷骰！`)
+    return
+  }
+
+  // 无同分：确定最终顺序
+  const orderedIds = totals.map(t => t.id)
+  const newPlayers = []
+  for (const id of orderedIds) {
+    newPlayers.push(s.players.find(p => p.id === id))
+  }
+  s.players = newPlayers
+  s.turnIndex = 0
+  os.done = true
+  s.phase = 'roll'
+  const orderNames = totals.map(t => `${t.name}(${t.total})`).join(' → ')
+  s.log.push(`🏁 行动顺序：${orderNames}`)
+  s.log.push(`第 1 回合，轮到 ${s.players[0].name}`)
+}
+
 // 路过卡片商店检测：移动路径经过 shop 标记格、无其他 pending、本回合未弹过 → 弹商店
 // 统一函数，供落地后和 END_TURN 两处调用，避免逻辑重复
 function tryTriggerShop(s, p) {
@@ -166,11 +224,29 @@ function tryTriggerShop(s, p) {
   return true
 }
 
+// 神仙附身弹窗：购买流程结束后，若之前踩了神仙格 → 弹出附身提示
+function tryTriggerGodPopup(s) {
+  if (s.pending || !s._godAfterBuy) return false
+  const { godId, playerId } = s._godAfterBuy
+  s.pending = { kind: 'god', godId, playerId }
+  s._godAfterBuy = null
+  return true
+}
+
+// 奇遇事件弹窗：购买流程结束后，若之前触发了奇遇 → 弹出事件提示
+function tryTriggerChancePopup(s) {
+  if (s.pending || !s._chancePopup) return false
+  s.pending = { kind: 'chance', event: s._chancePopup }
+  s._chancePopup = null
+  return true
+}
+
 export function gameReducer(state, action) {
-  const s = structuredClone(state)
+  const s = JSON.parse(JSON.stringify(state))
   if (s.status !== 'playing') return s
   s.announcedGroups ??= {}
   s.closedBridges ??= {}
+  s.barriers ??= {}
   const p = currentPlayer(s)
   if (!p) return s // 无当前玩家（极端情况）防护
 
@@ -182,8 +258,48 @@ export function gameReducer(state, action) {
   let result = s
 
   switch (action.type) {
+    // ===================== 决定先手顺序 =====================
+    case 'ROLL_ORDER': {
+      if (s.phase !== 'order') break
+      const os = s.orderState
+      if (os.done) break
+      const curPlayer = s.players[os.index]
+      if (!curPlayer) break
+      // 掷 3 颗骰子
+      const dice = []
+      for (let i = 0; i < 3; i++) dice.push(1 + Math.floor(Math.random() * 6))
+      os.rolls[curPlayer.id] = dice
+      s.log.push(`🎲 ${curPlayer.name} 掷出 ${dice.join('+')} = ${dice.reduce((a, b) => a + b, 0)} 点`)
+      // 下一个玩家
+      os.index++
+      if (os.index >= s.players.length) {
+        // 所有玩家都掷完了 → 排序
+        resolveOrder(s)
+      }
+      break
+    }
+
     case 'ROLL_DICE': {
+      // 若尚未决定顺序，先自动解决（兼容测试/AI 全自动）
+      if (s.phase === 'order') {
+        while (!s.orderState.done) {
+          const os = s.orderState
+          const curPlayer = s.players[os.index]
+          if (!curPlayer) { os.done = true; break }
+          const dice = []
+          for (let i = 0; i < 3; i++) dice.push(1 + Math.floor(Math.random() * 6))
+          os.rolls[curPlayer.id] = dice
+          os.index++
+          if (os.index >= s.players.length) resolveOrder(s)
+        }
+      }
       if (s.phase !== 'roll') break
+      // 贷款到期检测（回合开始时）
+      if (p.loanDue > 0 && s.round >= p.loanDue) {
+        processLoanDue(s, p)
+        checkBankrupt(s, p)
+        if (!p.alive) break
+      }
       if (p.jailLeft > 0) {
         p.jailLeft -= 1
         s.log.push(`🚔 ${p.name} 在拘留所服刑（还剩 ${p.jailLeft} 轮）`)
@@ -192,13 +308,8 @@ export function gameReducer(state, action) {
       }
       if (p.skipTurns > 0) {
         p.skipTurns -= 1
+        if (p.skipTurns <= 0) p.hospital = false // 歌乐山休养结束（hospital 只是展示标记）
         s.log.push(`✋ ${p.name} 被停留卡定住，跳过本回合`)
-        result = nextTurn(s)
-        break
-      }
-      if (p.hospital) {
-        p.hospital = false
-        s.log.push(`🏥 ${p.name} 在医院休养，跳过本回合`)
         result = nextTurn(s)
         break
       }
@@ -214,6 +325,8 @@ export function gameReducer(state, action) {
       const from = p.pos
       s.dice = dice
       s.stepsRemaining = sum
+      // 重置当前玩家的行走路径（动画用）
+      p.walkPath = [p.pos]
       s.phase = 'step' // 等待前端逐步推进
       s.log.push(`🎲 ${p.name} 掷出 ${dice.join(' + ')} = ${sum}，从「${TILES[from].name}」出发`)
       break
@@ -223,34 +336,40 @@ export function gameReducer(state, action) {
     case 'STEP': {
       if (!s.stepsRemaining || s.stepsRemaining <= 0) break
       const cur = TILES[p.pos]
-      const cameFrom = p.pos
-      const result = stepOneTile(cur, p, cameFrom)
-      if (result.paused) {
+      // 来路 = walkPath 里上一格（本回合内）或上回合遗留的 cameFrom
+      const cameFrom = p.walkPath.length >= 2 ? p.walkPath[p.walkPath.length - 2] : (p.cameFrom ?? p.pos)
+      const stepRes = stepOneTile(cur, p, cameFrom)
+      if (stepRes.paused) {
         // 分岔暂停
         s.pending = {
           kind: 'fork',
           tileId: cur.id,
-          options: result.options,
+          options: stepRes.options,
           chosen: null,
           stepsLeft: s.stepsRemaining,
           cameFrom,
           canPick: true,
         }
         s.phase = 'fork'
+        // 路过彩票站 → 等分岔选路后弹窗（在 CHOOSE_FORK 中处理）
         break
       }
-      // 走 1 步
-      p.pos = result.nextId
+      // 走 1 步：记录来路供下格使用
+      p.cameFrom = cur.id
+      p.pos = stepRes.nextId
       p.walkPath = p.walkPath || [cameFrom]
-      p.walkPath.push(result.nextId)
-      if (result.needsReverse) p.reverse = true
+      p.walkPath.push(stepRes.nextId)
       s.stepsRemaining -= 1
+      // 路过彩票站检测（延迟到停下时弹窗）
+      if (!s._lotteryTile && LOTTERY_TILES.includes(stepRes.nextId)) {
+        s._lotteryTile = stepRes.nextId
+      }
       // 路障检查
-      const landed = TILES[result.nextId]
-      if (landed?.barrier && landed.barrier !== p.id) {
-        const owner = s.players.find((pl) => pl.id === landed.barrier)
+      const barrier = s.barriers[stepRes.nextId]
+      if (barrier && barrier.owner !== p.id) {
+        const owner = s.players.find((pl) => pl.id === barrier.owner)
         p.points = (p.points ?? 0) - 50
-        s.log.push(`🚧 ${p.name} 踩到「${landed.name}」的路障！扣 50 积分`)
+        s.log.push(`🚧 ${p.name} 踩到「${TILES[stepRes.nextId].name}」的路障！扣 50 积分`)
         if (owner) { owner.points = (owner.points ?? 0) + 50 }
         s.stepsRemaining = 0
       }
@@ -270,19 +389,25 @@ export function gameReducer(state, action) {
       const finalChoice = s.pending.canPick ? chosen : s.pending.chosen
       if (!opt.includes(finalChoice)) break
       const stepsLeft = s.pending.stepsLeft
-      const fromTile = s.pending.tileId
-      p.reverse = forkNeedsReverse(TILES[fromTile], finalChoice)
+      const forkTile = s.pending.tileId
       s.pending = null
       // 只走选路这 1 步，剩余步数交给 STEP 推进
+      p.cameFrom = forkTile // 来路 = 分岔格
       p.walkPath = p.walkPath || [p.pos]
       p.walkPath.push(finalChoice)
       p.pos = finalChoice
-      s.stepsRemaining = stepsLeft
+      s.stepsRemaining = stepsLeft - 1 // 选路消耗 1 步
       s.phase = 'step' // 前端继续推进剩余步数
+      if (s.stepsRemaining <= 0) {
+        s.stepsRemaining = 0
+        s.phase = 'landed'
+        handleLanding(s, p)
+        break
+      }
       // 路障检查
-      const landed = TILES[finalChoice]
-      if (landed?.barrier && landed.barrier !== p.id) {
-        const owner = s.players.find((pl) => pl.id === landed.barrier)
+      const barrier = s.barriers[finalChoice]
+      if (barrier && barrier.owner !== p.id) {
+        const owner = s.players.find((pl) => pl.id === barrier.owner)
         p.points = (p.points ?? 0) - 50
         s.log.push(`🚧 ${p.name} 踩到路障！扣 50 积分`)
         if (owner) { owner.points = (owner.points ?? 0) + 50 }
@@ -296,6 +421,11 @@ export function gameReducer(state, action) {
     case 'BUY_PROPERTY': {
       if (s.pending?.kind !== 'buy') break
       const tile = TILES[s.pending.tileId]
+      // 已被（含用购地卡）买走 → 不再出售，清 pending
+      if (s.players.some((pl) => pl.properties.includes(tile.id))) {
+        s.pending = null
+        break
+      }
       if (p.money < tile.price) {
         s.log.push(`${p.name} 现金不足，无法购买「${tile.name}」`)
         break
@@ -310,8 +440,8 @@ export function gameReducer(state, action) {
         const idx = p.upgradableTiles.indexOf(tile.id)
         if (idx !== -1) p.upgradableTiles.splice(idx, 1)
       }
-      // 买地后立即检测商店（不再等 END_TURN）
-      tryTriggerShop(s, p)
+      // 买地后立即检测商店/彩票站/神仙附身弹窗/奇遇弹窗（不再等 END_TURN）
+      if (!tryTriggerShop(s, p) && !tryTriggerLottery(s, p) && !tryTriggerGodPopup(s)) tryTriggerChancePopup(s)
       break
     }
 
@@ -320,8 +450,8 @@ export function gameReducer(state, action) {
         const tile = TILES[s.pending.tileId]
         s.log.push(`${p.name} 放弃购买「${tile.name}」`)
         s.pending = null
-        // 跳过后立即检测商店
-        tryTriggerShop(s, p)
+        // 跳过后立即检测商店/彩票站/神仙附身弹窗/奇遇弹窗
+        if (!tryTriggerShop(s, p) && !tryTriggerLottery(s, p) && !tryTriggerGodPopup(s)) tryTriggerChancePopup(s)
       }
       break
     }
@@ -352,6 +482,8 @@ export function gameReducer(state, action) {
     }
 
     case 'USE_CARD': {
+      // 走格/分岔/拍卖中途不能用卡（防止改变移动方向/清掉 pending 造成 phase 错乱）
+      if (s.phase === 'step' || s.phase === 'fork' || s.phase === 'auction') break
       if (p.firstTurn) {
         s.log.push(`${p.name} 第一回合不能用卡！`)
         break
@@ -393,12 +525,15 @@ export function gameReducer(state, action) {
       const target = s.players.find((pl) => pl.alive && pl.id === action.targetPlayerId)
       if (!target || target.id === p.id) break
       // 校验提供的资产是否真的属于发起方
+      let invalid = false
       for (const id of action.offer.lands || []) {
-        if (!p.properties.includes(id)) { s.log.push('交易失败：你不拥有提供的一块地'); break }
+        if (!p.properties.includes(id)) { s.log.push('交易失败：你不拥有提供的一块地'); invalid = true; break }
       }
+      if (invalid) break
       for (const id of action.request.lands || []) {
-        if (!target.properties.includes(id)) { s.log.push('交易失败：对方不拥有你要的一块地'); break }
+        if (!target.properties.includes(id)) { s.log.push('交易失败：对方不拥有你要的一块地'); invalid = true; break }
       }
+      if (invalid) break
       if (action.offer.money && p.money < action.offer.money) { s.log.push('交易失败：现金不足'); break }
       s.pending = {
         kind: 'trade',
@@ -457,6 +592,8 @@ export function gameReducer(state, action) {
     }
 
     case 'TRAVEL_METRO': {
+      // 走格/分岔/拍卖中途不能乘（防止清掉 fork pending 造成 phase 错乱）
+      if (s.phase === 'step' || s.phase === 'fork' || s.phase === 'auction') break
       // 只要当前玩家站在轻轨站即可乘（详情卡入口不依赖 pending；p 为当前玩家）
       if (!isMetro(TILES[p.pos])) break
       const target = TILES[action.targetTileId]
@@ -470,8 +607,8 @@ export function gameReducer(state, action) {
       p.pos = target.id
       s.pending = null
       s.log.push(`🚈 ${p.name} 花 ¥${METRO_FEE} 乘轻轨，从「${fromName}」来到「${target.name}」`)
-      // 乘轻轨后检测出发站是否为商店格
-      tryTriggerShop(s, p)
+      // 乘轻轨后检测出发站是否为商店格/奇遇弹窗
+      if (!tryTriggerShop(s, p)) tryTriggerChancePopup(s)
       break
     }
 
@@ -483,7 +620,6 @@ export function gameReducer(state, action) {
       const fromName = TILES[p.pos]?.name ?? '?'
       p.pos = target.id
       p.walkPath = [target.id]
-      p.reverse = false
       s.pending = null
       s.log.push(`🚀 ${p.name} 使用大礼包传送，从「${fromName}」来到「${target.name}」`)
       s.phase = 'landed'
@@ -496,7 +632,27 @@ export function gameReducer(state, action) {
       if (s.pending?.kind === 'checkin') {
         s.pending = null
         s.log.push(`🎁 ${p.name} 收下大礼包，暂不传送`)
+        // 跳过后检测奇遇弹窗（如"回到最初的起点"触发了打卡）
+        tryTriggerChancePopup(s)
       }
+      break
+    }
+
+    // 神仙附身弹窗：关闭
+    case 'GOD_CLOSE': {
+      if (s.pending?.kind === 'god') s.pending = null
+      break
+    }
+
+    // 奇遇事件弹窗：关闭
+    case 'CHANCE_CLOSE': {
+      if (s.pending?.kind === 'chance') s.pending = null
+      break
+    }
+
+    // 破产弹窗：关闭
+    case 'BANKRUPT_CLOSE': {
+      if (s.pending?.kind === 'bankrupt') s.pending = null
       break
     }
 
@@ -523,8 +679,30 @@ export function gameReducer(state, action) {
       break
     }
 
+    // ===================== 银行贷款 =====================
+    case 'TAKE_LOAN': {
+      // 走格/分岔/拍卖中途不能贷款（防止改变移动方向或干扰拍卖）
+      if (s.phase === 'step' || s.phase === 'fork' || s.phase === 'auction') break
+      const amount = Math.max(0, Math.floor(action.amount || 0))
+      if (amount <= 0) break
+      const limit = loanLimit(p, totalAssets(p))
+      if (limit <= 0) { s.log.push(`${p.name} 无可贷额度`); break }
+      const actual = Math.min(amount, limit)
+      takeLoan(s, p, actual)
+      break
+    }
+    case 'REPAY_LOAN': {
+      if (!p.loanRepay) break
+      if (s.phase === 'step' || s.phase === 'fork' || s.phase === 'auction') break
+      const amount = Math.max(0, Math.floor(action.amount || 0))
+      if (amount <= 0) break
+      repayLoan(s, p, Math.min(amount, p.loanRepay))
+      break
+    }
+
     // ===================== 彩票系统 =====================
     case 'BUY_TICKET': {
+      // 保留单张购买（兼容）
       if (s.pending?.kind !== 'lottery') break
       if (s.lotteryBoughtTurn) {
         s.log.push(`${p.name} 本回合已经买过彩票了`)
@@ -537,8 +715,73 @@ export function gameReducer(state, action) {
       }
       break
     }
+    case 'BUY_TICKETS': {
+      // 批量购买
+      if (s.pending?.kind !== 'lottery') break
+      if (s.lotteryBoughtTurn) {
+        s.log.push(`${p.name} 本回合已经买过彩票了`)
+        break
+      }
+      const numbers = action.numbers
+      if (!Array.isArray(numbers) || numbers.length === 0) break
+      const res = buyTickets(s, p.id, numbers)
+      if (res.ok) {
+        s.lotteryBoughtTurn = true
+      } else if (res.msg) {
+        s.log.push(res.msg)
+      }
+      break
+    }
     case 'LOTTERY_CLOSE': {
       if (s.pending?.kind === 'lottery') s.pending = null
+      break
+    }
+    case 'LOTTERY_DRAW_CLOSE': {
+      if (s.pending?.kind === 'lottery_draw') s.pending = null
+      break
+    }
+
+    // ===================== 免租卡（被动触发） =====================
+    case 'SHIELD_USE': {
+      if (s.pending?.kind !== 'shield') break
+      const sp = s.pending
+      // 移除手牌中的免租卡
+      const idx = p.hand.findIndex((c) => c.type === 'shield')
+      if (idx !== -1) p.hand.splice(idx, 1)
+      s.log.push(`🛡️ ${p.name} 使用免租卡，豁免本次${sp.feeName}！`)
+      s.pending = null
+      // 免租后继续弹窗检测
+      tryTriggerChancePopup(s)
+      tryTriggerLotteryDeferred(s)
+      break
+    }
+    case 'SHIELD_SKIP': {
+      if (s.pending?.kind !== 'shield') break
+      const sp = s.pending
+      s.pending = null
+      // 正常支付租金
+      const tile = TILES[sp.tileId]
+      const owner = s.players.find((pl) => pl.id === sp.ownerId)
+      if (tile && owner) {
+        const level = owner.levels[tile.id] ?? 0
+        let fee = getRent(s, tile, level)
+        const rentMul = godRentMultiplier(owner)
+        if (rentMul !== 1) fee = Math.round(fee * rentMul)
+        const feeMul = godFeeMultiplier(p)
+        if (feeMul !== 1) fee = Math.round(fee * feeMul)
+        payMoney(s, p.id, owner.id, fee, `使用 ${owner.name} 的「${tile.name}」支付${sp.feeName}`)
+        checkBankrupt(s, p)
+        // 商圈达成提示
+        if (tile.group && isGroupComplete(s, tile.group)) {
+          const key = `${tile.group}@${s.round}`
+          if (!s.announcedGroups[key]) {
+            s.announcedGroups[key] = true
+            s.log.push(`🏙️ 「${GROUPS[tile.group]?.name ?? tile.group}」组合达成，${owner.name} 收租 ×1.5！`)
+          }
+        }
+      }
+      tryTriggerChancePopup(s)
+      tryTriggerLotteryDeferred(s)
       break
     }
 
@@ -653,7 +896,7 @@ export function gameReducer(state, action) {
       const fromName = TILES[pl.pos]?.name ?? '?'
       pl.pos = target.id
       pl.walkPath = [target.id]
-      pl.reverse = false
+      pl.cameFrom = null // 传送来，无明确来路
       s.pending = null
       s.log.push(`🛠 [调试] ${pl.name} 传送到「${target.name}」（原在 ${fromName}）`)
       s.phase = 'landed'
@@ -667,8 +910,7 @@ export function gameReducer(state, action) {
       if (!pl) break
       const steps = Math.max(1, Math.min(50, Math.floor(action.steps ?? 1)))
       pl.walkPath = [pl.pos]
-      pl.reverse = false
-      const moved = movePlayer(s, pl, steps, pl.pos)
+      const moved = movePlayer(s, pl, steps, pl.cameFrom)
       s.log.push(`🛠 [调试] ${pl.name} 直接走 ${steps} 步`)
       if (moved.paused) {
         s.phase = 'fork'
@@ -778,6 +1020,24 @@ export function gameReducer(state, action) {
           }
         }
       }
+      break
+    }
+
+    // 调试：强制借款
+    case 'DEBUG_TAKE_LOAN': {
+      const pl = action.playerId ? s.players.find((x) => x.id === action.playerId) : p
+      if (!pl) break
+      const amt = Math.max(1, Math.floor(action.amount || 1000))
+      takeLoan(s, pl, amt)
+      break
+    }
+
+    // 调试：强制还款
+    case 'DEBUG_REPAY_LOAN': {
+      const pl = action.playerId ? s.players.find((x) => x.id === action.playerId) : p
+      if (!pl) break
+      const amt = Math.max(1, Math.floor(action.amount || 1000))
+      repayLoan(s, pl, amt)
       break
     }
 

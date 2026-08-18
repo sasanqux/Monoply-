@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "server": "node server/index.js",
     "start": "npm run build && node server/index.js",
-    "smoke": "node scripts/smoke-test.mjs"
+    "smoke": "node scripts/smoke-test.mjs",
+    "net-smoke": "node scripts/net-smoke.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

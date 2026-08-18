@@ -13,13 +13,13 @@ import DiceThrow from './components/DiceThrow.vue'
 import ComicIcon from './components/ComicIcon.vue'
 import DebugPanel from './components/DebugPanel.vue'
 import TradeModal from './components/TradeModal.vue'
-import { createInitialState, gameReducer, aiDecide, currentPlayer, TILES, isPropertyTile, isBridge, cardTargetKind, VEHICLES, CARDS } from './game/index.js'
+import { createInitialState, gameReducer, aiDecide, currentPlayer, TILES, isPropertyTile, cardTargetKind, VEHICLES, CARDS, STOCKS, GODS, loanLimit, totalAssets } from './game/index.js'
 import { connect, disconnect } from './net/socket.js'
 import Home from './components/Home.vue'
 import ModeSelect from './components/ModeSelect.vue'
 import Lobby from './components/Lobby.vue'
 
-const AI_NAMES = ['阿蓝', '阿绿', '阿橙', '阿紫', '阿粉', '阿灰', '阿黑']
+const AI_NAMES = ['闷墩', '宝器', '莽娃', '瓜娃', '耙耳朵', '胎神', '棒棒']
 
 let socket = null
 const view = ref('home') // home | mode | setup | lobby | game
@@ -46,6 +46,8 @@ const selecting = ref(null) // { type:'card', id, mode:'tile'|'player'|'swap', s
 const infoTile = ref(null) // 当前查看详情的格子 id
 const myModal = ref(null) // 底部入口弹窗：'cards' | 'lands' | 'stocks'
 const showEncyclopedia = ref(false) // 百科全书弹窗
+const showLoan = ref(false) // 银行贷款面板
+const loanAmount = ref(0) // 借款/还款输入金额
 
 // ===== 交易系统 =====
 const tradeTarget = ref(null) // 交易目标玩家 id
@@ -122,17 +124,39 @@ function ensureSocket() {
   return socket
 }
 
-// 联进入游戏
-function onEnterNetGame({ roomId, gameState }) {
+// 联进入游戏（gameStart 只带 roomId；对局状态等第一条 gameState 广播）
+function onEnterNetGame() {
   netMode.value = true
-  state.value = gameState
   view.value = 'game'
   // 清理旧监听避免重复
   socket.off('gameState')
   socket.on('gameState', ({ state: gs, myPlayerId: pid }) => {
-    state.value = gs
     if (pid) myPlayerId.value = pid
+    applyNetState(gs)
   })
+}
+
+// 联机：应用服务器广播的 state，并用 walkPath 差量驱动走格动画（与单机同一套动画逻辑）
+function applyNetState(gs) {
+  const prevMap = lastWalkPaths.value
+  state.value = gs
+  const { paths, nextMap } = buildMovePaths(gs, prevMap)
+  lastWalkPaths.value = nextMap
+  if (paths.length) {
+    lastMove.value = { paths, n: (lastMove.value?.n ?? 0) + 1 }
+    animating.value = true
+    animatingPids.value = paths.map((p) => p.pid)
+    clearTimeout(animTimer)
+    const steps = Math.max(...paths.map((p) => p.path.length - 1))
+    animTimer = setTimeout(() => { animating.value = false; animatingPids.value = [] }, steps * 400 + 500)
+  }
+  // 落地产生购买/轻轨等 pending 时，立即停止动画锁让按钮可用（与单机 dispatch 一致）
+  if (gs.pending?.kind === 'buy' || gs.pending?.kind === 'metro') {
+    clearTimeout(animTimer)
+    animating.value = false
+    animatingPids.value = []
+  }
+  scheduleAI()
 }
 
 // 已动画过的 walkPath 快照（按玩家 id）；用于差量计算"本段该走的格子"
@@ -199,6 +223,17 @@ function dispatch(action) {
   // 单机模式：本地算
   const prevMap = lastWalkPaths.value
   state.value = gameReducer(state.value, action)
+  // 落地产生购买/轻轨等 pending 时，立即停止动画让按钮可用
+  if (state.value.pending?.kind === 'buy' || state.value.pending?.kind === 'metro') {
+    clearTimeout(animTimer)
+    animating.value = false
+    animatingPids.value = []
+    stopStepping()
+  }
+  // 回合结束：清空 walkPath 快照，下回合重新计算
+  if (action.type === 'END_TURN') {
+    lastWalkPaths.value = {}
+  }
   const { paths, nextMap } = buildMovePaths(state.value, prevMap)
   lastWalkPaths.value = nextMap
   lastMove.value = {
@@ -235,9 +270,10 @@ function onDiceThrow() {
   dispatch({ type: 'ROLL_DICE' })
 }
 
-// 骰子定格后：开始逐格推进
+// 骰子定格后：单机开始逐格推进；联机由服务器一次算完整路径，动画由 gameState 广播驱动
 function onDiceSettle() {
   diceThrowing.value = false
+  if (netMode.value) return
   if (state.value?.stepsRemaining > 0) {
     startStepping()
   } else {
@@ -269,12 +305,22 @@ function stopStepping() {
   stepTimer = null
 }
 
-// 分岔路口：玩家选路后走 1 步，剩余步数继续推进
+// 选路后继续逐格推进
+function chooseFork(tileId) {
+  dispatch({ type: 'CHOOSE_FORK', tileId })
+  // CHOOSE_FORK 后 phase 回到 step，需重启推进（原 interval 已在遇 fork 时停掉）
+  if (state.value?.phase === 'step' && state.value?.stepsRemaining > 0) {
+    startStepping()
+  }
+}
+
+// 分岔路口：点 ✕ = 随机选一条（不能偏心总选第一条），不关闭卡片（必须做出选择）
 function onForkClose() {
   if (!state.value?.pending || state.value.pending.kind !== 'fork') return
   const pending = state.value.pending
-  const tileId = pending.canPick ? pending.options[0] : pending.chosen
-  dispatch({ type: 'CHOOSE_FORK', tileId })
+  const opts = pending.canPick ? pending.options : [pending.chosen]
+  const tileId = opts[Math.floor(Math.random() * opts.length)]
+  chooseFork(tileId)
 }
 
 // 新回合开始时重置"已投掷"标记
@@ -288,14 +334,44 @@ watch(
 function scheduleAI() {
   const st = state.value
   if (!st || st.status !== 'playing') return
+  // 交易提案给 AI → 1.2s 后 AI 评估响应（目标玩家不是回合玩家，需在回合检查前处理）
+  const tradeTo = st.pending?.kind === 'trade' ? st.players.find((p) => p.id === st.pending.to) : null
+  if (tradeTo?.isAI && !netMode.value) {
+    clearTimeout(aiTimer)
+    aiTimer = setTimeout(() => {
+      const a = aiDecide(state.value, tradeTo.id)
+      if (a) dispatch(a)
+    }, 1000)
+    return
+  }
   // 拍卖揭晓阶段：自动触发揭晓
   if (st.phase === 'auction' && st.pending?.kind === 'auction' && st.pending.roundStep === 1) {
+    // 联机：只有"游戏回合玩家"的客户端触发，避免 N 个客户端重复揭晓
+    const turnPlayer = currentPlayer(st)
+    if (netMode.value && turnPlayer?.id !== myPlayerId.value) return
     clearTimeout(aiTimer)
-    aiTimer = setTimeout(() => dispatch({ type: 'AUCTION_REVEAL' }), 1500)
+    aiTimer = setTimeout(() => dispatch({ type: 'AUCTION_REVEAL' }), 1000)
+    return
+  }
+  // 决定先手顺序阶段：当前轮到的 AI 自动掷骰
+  if (st.phase === 'order' && !st.orderState?.done) {
+    const orderP = st.players[st.orderState.index]
+    if (orderP?.isAI) {
+      clearTimeout(aiTimer)
+      aiTimer = setTimeout(() => dispatch({ type: 'ROLL_ORDER' }), 800)
+      return
+    }
+    // 轮到人类掷骰 → 等玩家手动点按钮，不调度 AI
     return
   }
   const cur = st.phase === 'auction' && st.pending?.kind === 'auction' ? st.players[st.pending.turn] : currentPlayer(st)
   if (!cur || !cur.isAI) return
+  // 奇遇/神仙/破产弹窗显示时，暂停 AI 循环（等人类关闭弹窗）
+  if (st.pending?.kind === 'chance' || st.pending?.kind === 'god' || st.pending?.kind === 'bankrupt') {
+    clearTimeout(aiTimer)
+    aiTimer = setTimeout(() => scheduleAI(), 800)
+    return
+  }
   // AI 在 step 阶段：自动逐格推进
   if (st.phase === 'step' && st.stepsRemaining > 0) {
     clearTimeout(aiTimer)
@@ -305,7 +381,7 @@ function scheduleAI() {
     return
   }
   // 其他阶段：正常 AI 决策
-  const delay = st.phase === 'roll' ? 1200 : st.phase === 'auction' ? 900 : 600
+  const delay = 1000
   clearTimeout(aiTimer)
   aiTimer = setTimeout(() => {
     const action = aiDecide(state.value, cur.id)
@@ -319,6 +395,7 @@ const isMyTurn = computed(() => {
   if (netMode.value) return cur.value.id === myPlayerId.value
   return !cur.value.isAI
 })
+const myLoanLimit = computed(() => cur.value ? loanLimit(cur.value, totalAssets(cur.value)) : 0)
 
 // 随机路线卡片：仅在轮到我、且骰子/走格动画结束（确保玩家看清）时显示；必须点右上角 ✕ 关闭
 const showForkCard = computed(() => {
@@ -364,6 +441,8 @@ const selectableTiles = computed(() => {
         return TILES.filter((t) => st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id) && (p.levels[t.id] ?? 0) >= 1)).map((t) => t.id)
       case 'monster':
         return TILES.filter((t) => st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id))).map((t) => t.id)
+      case 'barrier':
+        return TILES.filter((t) => isPropertyTile(t) && !t.barrier).map((t) => t.id)
       case 'swap':
         if (selecting.value.swapStep === 1) return me.properties.filter((i) => isPropertyTile(TILES[i]))
         return TILES.filter((t) => st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id))).map((t) => t.id)
@@ -381,10 +460,7 @@ const selectablePlayers = computed(() => {
   if (selecting.value.type === 'card') {
     const card = me.hand.find((c) => c.id === selecting.value.id)
     if (!card) return []
-    if (card.type === 'frame' || card.type === 'hold') {
-      return st.players.filter((p) => p.alive && p.id !== me.id).map((p) => p.id)
-    }
-    if (card.type === 'transfer') {
+    if (card.type === 'hold') {
       return st.players.filter((p) => p.alive && p.id !== me.id).map((p) => p.id)
     }
   }
@@ -446,6 +522,11 @@ function useCard(card) {
   }
   if (kind === 'player') {
     selecting.value = { type: 'card', id: card.id, mode: 'player' }
+    return
+  }
+  if (kind === 'stock') {
+    // 黑市卡/红市卡：选一只股票生效
+    selecting.value = { type: 'card', id: card.id, mode: 'stock' }
   }
 }
 
@@ -458,6 +539,18 @@ function startMetro() {
 function onLandInfoMetro() {
   infoTile.value = null
   startMetro()
+}
+
+// 银行贷款
+function takeLoan() {
+  if (loanAmount.value <= 0 || loanAmount.value > myLoanLimit.value) return
+  dispatch({ type: 'TAKE_LOAN', amount: loanAmount.value })
+  loanAmount.value = 0
+}
+function repayLoan() {
+  if (loanAmount.value <= 0) return
+  dispatch({ type: 'REPAY_LOAN', amount: loanAmount.value })
+  loanAmount.value = 0
 }
 
 function openTileInfo(id) {
@@ -483,10 +576,22 @@ const selectHint = computed(() => {
     if (sel.mode === 'swap' && sel.swapStep === 1) return '点一块自己的地（用于交换）'
     if (sel.mode === 'swap') return '点一块对方的地（换过去）'
     if (sel.mode === 'player') return '选一个目标玩家'
+    if (sel.mode === 'stock') return '选一只股票生效'
     return '选一个目标格子'
   }
   return '选一个放置/传送的格子'
 })
+
+// 股票卡（黑市/红市）目标选择
+const stockCard = computed(() => {
+  if (selecting.value?.type !== 'card' || selecting.value.mode !== 'stock') return null
+  return currentPlayer(state.value)?.hand.find((c) => c.id === selecting.value.id) ?? null
+})
+function pickStock(code) {
+  if (!stockCard.value) return
+  dispatch({ type: 'USE_CARD', cardId: stockCard.value.id, target: { code } })
+  selecting.value = null
+}
 
 // 朝天门打卡大礼包弹窗（我的回合、动画结束后显示）
 const showCheckin = computed(() => {
@@ -500,14 +605,15 @@ function startCheckinTeleport() {
   selecting.value = { type: 'checkin' }
 }
 
-// 拍卖弹窗：轮到人类玩家出价时显示
+// 拍卖弹窗：轮到【我】出价时才显示（此前所有客户端都会弹，非出价人的出价会被服务器拒绝）
 const showAuction = computed(() => {
   const st = state.value
   if (!st || st.phase !== 'auction' || st.pending?.kind !== 'auction') return false
   const ap = st.pending
   if (ap.roundStep !== 0) return false // 出价阶段才显示
   const bidder = st.players[ap.turn]
-  return !!bidder && !bidder.isAI
+  if (!bidder || bidder.isAI) return false
+  return netMode.value ? bidder.id === myPlayerId.value : true
 })
 
 // 拍卖揭晓弹窗：所有玩家出完后显示结果
@@ -520,6 +626,19 @@ const showAuctionReveal = computed(() => {
 // 人类拍卖出价输入
 const auctionBid = ref(0)
 
+// 决定先手顺序阶段
+const isOrderPhase = computed(() => state.value?.phase === 'order')
+const orderState = computed(() => state.value?.orderState)
+const orderCurrentPlayer = computed(() => {
+  const os = orderState.value
+  if (!os || os.done) return null
+  return state.value?.players[os.index]
+})
+const isMyOrderTurn = computed(() => {
+  const cp = orderCurrentPlayer.value
+  return cp && !cp.isAI
+})
+
 // 卡片商店弹窗：路过双碑/巴南、轮到我的回合、动画结束后显示
 const showShop = computed(() => {
   const st = state.value
@@ -529,12 +648,56 @@ const showShop = computed(() => {
   return true
 })
 
+// 彩票开奖弹窗
+const showLotteryDraw = computed(() => {
+  const st = state.value
+  if (!st || st.pending?.kind !== 'lottery_draw') return false
+  return true
+})
+const lotteryDrawWinner = computed(() => state.value?.pending?.winnerName)
+const lotteryDrawWinning = computed(() => state.value?.pending?.winning)
+const lotteryDrawPrize = computed(() => state.value?.pending?.prize)
+
+// 免租卡询问弹窗
+const showShieldPopup = computed(() => {
+  const st = state.value
+  if (!st || st.pending?.kind !== 'shield') return false
+  if (!isMyTurn.value) return false
+  return true
+})
 // 彩票弹窗
 const showLottery = computed(() => {
   const st = state.value
   if (!st || st.pending?.kind !== 'lottery') return false
   if (!isMyTurn.value) return false
   if (animating.value || diceThrowing.value || selecting.value) return false
+  return true
+})
+// 神仙附身弹窗：所有玩家可见（显示被附身玩家名字）
+const showGodPopup = computed(() => {
+  const st = state.value
+  if (!st || st.pending?.kind !== 'god') return false
+  if (animating.value || diceThrowing.value || selecting.value) return false
+  return true
+})
+// 被附身玩家名字
+const godPlayerName = computed(() => {
+  const st = state.value
+  if (!st || st.pending?.kind !== 'god') return ''
+  const gp = st.pending
+  return st.players.find(p => p.id === gp.playerId)?.name || ''
+})
+// 奇遇事件弹窗：所有玩家可见（单人=任何时候都弹，联机=全客户端弹出）
+const showChancePopup = computed(() => {
+  const st = state.value
+  if (!st || st.pending?.kind !== 'chance') return false
+  if (animating.value || diceThrowing.value || selecting.value) return false
+  return true
+})
+// 破产弹窗：所有玩家可见
+const showBankruptPopup = computed(() => {
+  const st = state.value
+  if (!st || st.pending?.kind !== 'bankrupt') return false
   return true
 })
 const myNumbers = computed(() => {
@@ -554,6 +717,34 @@ function isMyNumber(n) {
   return myNumbers.value.includes(n)
 }
 
+// 彩票多选
+const selectedNumbers = ref([])
+const lotteryPrice = 500
+function isSelected(n) {
+  return selectedNumbers.value.includes(n)
+}
+function toggleNumber(n) {
+  if (isNumberTaken(n)) return
+  const idx = selectedNumbers.value.indexOf(n)
+  if (idx >= 0) {
+    selectedNumbers.value.splice(idx, 1)
+  } else {
+    selectedNumbers.value.push(n)
+  }
+}
+function clearSelection() {
+  selectedNumbers.value = []
+}
+function buySelectedTickets() {
+  if (selectedNumbers.value.length === 0) return
+  dispatch({ type: 'BUY_TICKETS', numbers: [...selectedNumbers.value] })
+  selectedNumbers.value = []
+}
+// 打开彩票弹窗时清空选择
+watch(showLottery, (val) => {
+  if (val) selectedNumbers.value = []
+})
+
 // 股票事件处理
 function onStockBuy(payload) {
   dispatch({ type: 'STOCK_BUY', code: payload.code, shares: payload.shares })
@@ -567,9 +758,8 @@ function onStockSell(payload) {
   <div class="app halftone">
     <header class="app__head">
       <h1 class="comic-title comic-title--xl">
-        <span class="comic-stripe">重庆大富翁</span>
+        <span class="comic-stripe">大富翁——重庆之旅</span>
       </h1>
-      <span class="tag-comic tag-comic--red">两江 · 桥 · 卡牌</span>
     </header>
 
     <!-- 首页 -->
@@ -598,6 +788,11 @@ function onStockSell(payload) {
       @back="view = 'mode'"
     />
 
+    <!-- 联机进入对局：等第一条 gameState 广播 -->
+    <div v-else-if="view === 'game' && !state" class="net-loading card-comic">
+      <p>📡 正在同步对局…</p>
+    </div>
+
     <!-- 游戏界面 -->
     <template v-else-if="view === 'game'">
       <div class="app__game">
@@ -605,6 +800,18 @@ function onStockSell(payload) {
           <div v-if="selecting" class="select-bar bubble">
             <span class="select-bar__text"><ComicIcon name="target" :size="16" /> {{ selectHint }}</span>
             <button class="btn-comic btn-comic--sm btn-comic--ghost" @click="cancelSelect">取消</button>
+          </div>
+          <!-- 股票卡（黑市/红市）：选目标股票 -->
+          <div v-if="stockCard" class="card-comic stock-picker">
+            <p class="stock-picker__title">{{ stockCard.name }} · 选一只股票</p>
+            <div class="stock-picker__list">
+              <button
+                v-for="(def, code) in STOCKS"
+                :key="code"
+                class="stock-picker__item"
+                @click="pickStock(code)"
+              >{{ def.icon }} {{ def.name }}</button>
+            </div>
           </div>
           <div class="board-wrap">
             <div ref="boardEl" class="board-anchor">
@@ -628,7 +835,35 @@ function onStockSell(payload) {
       </div>
 
       <div class="app__bags">
-        <BagsBar :me="cur" @open="myModal = $event" @open-encyclopedia="showEncyclopedia = true" />
+        <BagsBar :me="cur" :state="state" @open="myModal = $event" @open-encyclopedia="showEncyclopedia = true" @open-loan="showLoan = true" />
+      </div>
+
+      <!-- 决定先手顺序弹窗 -->
+      <div v-if="isOrderPhase" class="overlay-layer fork-card-overlay">
+        <div class="card-comic card-comic--pad-lg fork-card order-popup">
+          <div class="fork-card__dice">🎲</div>
+          <h3 class="comic-title comic-title--md">决定行动顺序</h3>
+          <p class="fork-card__sub">每人掷 3 颗骰子，点数大的先手</p>
+          <div class="order-list">
+            <div
+              v-for="(p, i) in state.players"
+              :key="p.id"
+              class="order-item"
+              :class="{ 'order-item--current': orderState?.index === i && !orderState?.done, 'order-item--done': orderState?.rolls?.[p.id] }"
+            >
+              <i class="order-item__dot" :style="{ background: p.color }"></i>
+              <span class="order-item__name">{{ p.name }}<em v-if="p.isAI">AI</em></span>
+              <span v-if="orderState?.rolls?.[p.id]" class="order-item__dice">
+                {{ orderState.rolls[p.id].join(' + ') }} = <b>{{ orderState.rolls[p.id].reduce((a,b) => a+b, 0) }}</b>
+              </span>
+              <span v-else class="order-item__wait">等待中...</span>
+            </div>
+          </div>
+          <button v-if="isMyOrderTurn" class="btn-comic" @click="dispatch({ type: 'ROLL_ORDER' })">
+            🎲 掷骰子
+          </button>
+          <p v-else-if="!orderState?.done" class="fork-card__hint">等待 {{ orderCurrentPlayer?.name }} 掷骰...</p>
+        </div>
       </div>
 
       <!-- 底部入口弹窗（卡牌/地产/其它） -->
@@ -648,6 +883,41 @@ function onStockSell(payload) {
 
       <!-- 百科全书弹窗 -->
       <Encyclopedia v-if="showEncyclopedia" :state="state" @close="showEncyclopedia = false" />
+
+      <!-- 银行贷款面板 -->
+      <div v-if="showLoan" class="modal-overlay" @click.self="showLoan = false">
+        <div class="modal-card loan-panel">
+          <button class="modal-card__close" @click="showLoan = false">✕</button>
+          <h3 class="comic-title comic-title--md">🏦 银行贷款</h3>
+
+          <!-- 无贷款状态：申请借款 -->
+          <div v-if="!cur?.loanRepay" class="loan-panel__section">
+            <p class="loan-panel__info">可贷额度：<b :class="{'text-danger': myLoanLimit <= 0}">¥{{ myLoanLimit }}</b></p>
+            <p class="loan-panel__hint">贷款期限 10 回合，还款 = 借款 × 120%（20% 利息）</p>
+            <p class="loan-panel__hint">到期未还 → 强制变卖资产 → 破产</p>
+            <div class="loan-panel__input-row">
+              <input v-model.number="loanAmount" type="number" min="1000" :max="myLoanLimit" step="1000" class="loan-panel__input" placeholder="输入借款金额" />
+              <button class="btn-comic btn-comic--primary" :disabled="loanAmount <= 0 || loanAmount > myLoanLimit || myLoanLimit <= 0" @click="takeLoan">借款</button>
+            </div>
+            <p v-if="loanAmount > 0 && myLoanLimit > 0" class="loan-panel__preview">实得 ¥{{ loanAmount }} · 到期需还 ¥{{ Math.round(loanAmount * 1.2) }}</p>
+          </div>
+
+          <!-- 有贷款状态：还款 -->
+          <div v-else class="loan-panel__section">
+            <p class="loan-panel__info">待还总额：<b class="text-danger">¥{{ cur?.loanRepay }}</b></p>
+            <p class="loan-panel__info">剩余本金：<b>¥{{ cur?.loan }}</b></p>
+            <p class="loan-panel__info">到期回合：<b>{{ cur?.loanDue > 0 ? '第 ' + cur?.loanDue + ' 回合' : '无' }}</b></p>
+            <p v-if="cur?.loanDue > 0" class="loan-panel__hint" :class="{'text-danger': cur?.loanDue - state.round <= 3}">
+              还剩 {{ cur?.loanDue - state.round }} 回合
+            </p>
+            <div class="loan-panel__input-row">
+              <input v-model.number="loanAmount" type="number" min="1" :max="cur?.loanRepay" step="500" class="loan-panel__input" placeholder="输入还款金额" />
+              <button class="btn-comic btn-comic--primary" :disabled="loanAmount <= 0 || loanAmount > cur?.loanRepay" @click="repayLoan">还款</button>
+            </div>
+            <button class="btn-comic btn-comic--sm loan-panel__repay-all" :disabled="!cur?.loanRepay" @click="loanAmount = cur?.loanRepay; repayLoan()">一次性还清</button>
+          </div>
+        </div>
+      </div>
 
       <ResultOverlay v-if="state.status === 'finished'" :state="state" @again="startGame(lastOpts)" />
 
@@ -694,14 +964,14 @@ function onStockSell(payload) {
               v-for="optId in state.pending.options"
               :key="optId"
               class="btn-comic btn-comic--sm fork-card__opt"
-              @click="dispatch({ type: 'CHOOSE_FORK', tileId: optId })"
+              @click="chooseFork(optId)"
             >
               {{ TILES[optId].name }}
             </button>
           </div>
           <!-- 随机模式：显示结果 -->
           <div v-else class="fork-card__route">{{ TILES[state.pending.chosen].name }}</div>
-          <p class="fork-card__hint">选择后会继续走完剩余 {{ state.pending.stepsLeft + 1 }} 步（含本步）· 点右上角 ✕ 关闭</p>
+          <p class="fork-card__hint">选择后会继续走完剩余 {{ state.pending.stepsLeft + 1 }} 步（含本步）· 点右上角 ✕ 随机选路</p>
         </div>
       </div>
 
@@ -751,7 +1021,7 @@ function onStockSell(payload) {
             正在拍卖「{{ TILES[state.pending.tileId].name }}」（原价 ¥{{ TILES[state.pending.tileId].price }}）
           </p>
           <div class="fork-card__route">零元起拍（盲拍，他人看不到你的出价）</div>
-          <p class="fork-card__hint">轮到你出价 · 现金 ¥{{ cur.money }} · 已出价 {{ Object.keys(state.pending.bids).length }}/{{ state.pending.aliveCount }}</p>
+          <p class="fork-card__hint">轮到你出价 · 现金 ¥{{ cur.money }} · 出完所有人揭晓（他人出价对你不可见）</p>
           <div class="auction-input-row">
             <input v-model.number="auctionBid" class="input-comic" type="number" min="0" :max="cur.money" step="100" placeholder="输入出价" />
             <span class="auction-input-unit">元</span>
@@ -799,10 +1069,15 @@ function onStockSell(payload) {
                 v-for="n in 100"
                 :key="n"
                 class="lot-num"
-                :class="{ 'lot-num--taken': isNumberTaken(n), 'lot-num--mine': isMyNumber(n) }"
+                :class="{ 'lot-num--taken': isNumberTaken(n), 'lot-num--mine': isMyNumber(n), 'lot-num--sel': isSelected(n) }"
                 :disabled="isNumberTaken(n)"
-                @click="dispatch({ type: 'BUY_TICKET', number: n })"
+                @click="toggleNumber(n)"
               >{{ n }}</button>
+            </div>
+            <div class="lottery-cart">
+              <span class="lottery-cart__info">已选 <b>{{ selectedNumbers.length }}</b> 张 · ¥{{ selectedNumbers.length * lotteryPrice }}</span>
+              <button class="btn-comic btn-comic--sm" :disabled="selectedNumbers.length === 0" @click="buySelectedTickets()">购买选中的票</button>
+              <button class="btn-comic btn-comic--sm btn-comic--ghost" :disabled="selectedNumbers.length === 0" @click="clearSelection()">清空</button>
             </div>
             <div class="lottery-my">
               <span v-if="myNumbers.length">我的号码: {{ myNumbers.join(', ') }}</span>
@@ -810,6 +1085,74 @@ function onStockSell(payload) {
             </div>
           </div>
           <button class="btn-comic btn-comic--ghost" @click="dispatch({ type: 'LOTTERY_CLOSE' })">离开彩票站</button>
+        </div>
+      </div>
+
+      <!-- 神仙附身弹窗（全员可见） -->
+      <div v-if="showGodPopup" class="overlay-layer fork-card-overlay">
+        <div class="card-comic card-comic--pad-lg fork-card god-popup">
+          <div class="fork-card__dice god-popup__icon">{{ GODS[state.pending.godId]?.icon || '✨' }}</div>
+          <h3 class="comic-title comic-title--md">神仙附身</h3>
+          <p class="fork-card__sub god-popup__name">{{ godPlayerName }} 被「{{ GODS[state.pending.godId]?.name }}」附身！</p>
+          <div class="god-popup__desc">{{ GODS[state.pending.godId]?.desc }}</div>
+          <p class="fork-card__hint">持续 {{ GODS[state.pending.godId]?.duration || 0 }} 回合</p>
+          <button class="btn-comic" @click="dispatch({ type: 'GOD_CLOSE' })">知道了</button>
+        </div>
+      </div>
+
+      <!-- 奇遇事件弹窗 -->
+      <div v-if="showChancePopup" class="overlay-layer fork-card-overlay">
+        <div class="card-comic card-comic--pad-lg fork-card chance-popup">
+          <div class="fork-card__dice chance-popup__icon">{{ state.pending.event?.icon || '❓' }}</div>
+          <h3 class="comic-title comic-title--md">奇遇</h3>
+          <p class="fork-card__sub chance-popup__title">{{ state.pending.event?.text }}</p>
+          <div class="chance-popup__desc">{{ state.pending.event?.desc }}</div>
+          <button class="btn-comic" @click="dispatch({ type: 'CHANCE_CLOSE' })">知道了</button>
+        </div>
+      </div>
+
+      <!-- 免租卡询问弹窗 -->
+      <div v-if="showShieldPopup" class="overlay-layer fork-card-overlay">
+        <div class="card-comic card-comic--pad-lg fork-card shield-popup">
+          <div class="fork-card__dice">🛡️</div>
+          <h3 class="comic-title comic-title--md">使用免租卡？</h3>
+          <p class="fork-card__sub">你手中有免租卡，是否使用来豁免本次{{ state.pending?.feeName || '租金' }}？</p>
+          <div class="fork-card__btns">
+            <button class="btn-comic btn-comic--ghost" @click="dispatch({ type: 'SHIELD_SKIP' })">正常支付</button>
+            <button class="btn-comic" @click="dispatch({ type: 'SHIELD_USE' })">使用免租卡</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 彩票开奖弹窗 -->
+      <div v-if="showLotteryDraw" class="overlay-layer fork-card-overlay">
+        <div class="card-comic card-comic--pad-lg fork-card lottery-draw-popup">
+          <!-- 礼花庆祝动画（中奖时） -->
+          <div v-if="lotteryDrawWinner" class="confetti-container">
+            <div v-for="i in 30" :key="i" class="confetti" :style="{ '--x': Math.random() * 100 + '%', '--d': Math.random() * 360 + 'deg', '--delay': Math.random() * 0.5 + 's', '--color': ['#ef4444','#f59e0b','#22c55e','#3b82f6','#a855f7','#ec4899'][i % 6] }"></div>
+          </div>
+          <div class="fork-card__dice lottery-draw__icon">{{ lotteryDrawWinner ? '🎉' : '🎰' }}</div>
+          <h3 class="comic-title comic-title--md">{{ lotteryDrawWinner ? '头奖揭晓！' : '彩票开奖' }}</h3>
+          <p class="fork-card__sub lottery-draw__number">中奖号码：<b>{{ lotteryDrawWinning }}</b></p>
+          <div v-if="lotteryDrawWinner" class="lottery-draw__win">
+            <p class="lottery-draw__winner">🎊 {{ lotteryDrawWinner }} 中奖了！🎊</p>
+            <p class="lottery-draw__prize">获得奖金 <b>¥{{ lotteryDrawPrize }}</b></p>
+          </div>
+          <p v-else class="lottery-draw__lose">😢 无人中奖，继续购买等待下一轮开奖...</p>
+          <button class="btn-comic" @click="dispatch({ type: 'LOTTERY_DRAW_CLOSE' })">
+            {{ lotteryDrawWinner ? '太棒了！' : '知道了' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- 破产弹窗 -->
+      <div v-if="showBankruptPopup" class="overlay-layer fork-card-overlay">
+        <div class="card-comic card-comic--pad-lg fork-card bankrupt-popup">
+          <div class="fork-card__dice bankrupt-popup__icon">💸</div>
+          <h3 class="comic-title comic-title--md">破产出局</h3>
+          <p class="fork-card__sub bankrupt-popup__name">{{ state.pending.playerName }}</p>
+          <div class="bankrupt-popup__desc">资金链断裂，变卖所有资产后仍无法偿还债务，被迫破产出局！</div>
+          <button class="btn-comic" @click="dispatch({ type: 'BANKRUPT_CLOSE' })">知道了</button>
         </div>
       </div>
 
@@ -823,8 +1166,8 @@ function onStockSell(payload) {
         @offer="onTradeOffer"
       />
 
-      <!-- 交易提案弹窗（对方收到时显示） -->
-      <div v-if="state.pending?.kind === 'trade' && state.pending.to === cur?.id && !cur?.isAI" class="overlay-layer fork-card-overlay">
+      <!-- 交易提案弹窗（联机：对方收到时显示；单机由 AI 自动响应） -->
+      <div v-if="netMode && state.pending?.kind === 'trade' && state.pending.to === myPlayerId" class="overlay-layer fork-card-overlay">
         <div class="card-comic card-comic--pad-lg fork-card">
           <div class="fork-card__dice">🤝</div>
           <h3 class="comic-title comic-title--md">交易提案</h3>
@@ -850,8 +1193,9 @@ function onStockSell(payload) {
         </div>
       </div>
 
-      <!-- 调试台（右下角悬浮） -->
+      <!-- 调试台（右下角悬浮；联机模式禁用——服务器也会拒绝 DEBUG_*） -->
       <DebugPanel
+        v-if="!netMode"
         :state="state"
         :current-id="cur?.id"
         :teleport-on="!!debugTeleport"
@@ -863,7 +1207,7 @@ function onStockSell(payload) {
 
     </template>
 
-    <footer class="app__foot">重庆大富翁 · Comic Style · M0+ 版</footer>
+    <footer class="app__foot">大富翁——重庆之旅 · Comic Style · M0+ 版</footer>
   </div>
 </template>
 
@@ -1035,6 +1379,82 @@ function onStockSell(payload) {
   margin: 0;
 }
 
+/* 神仙附身弹窗 */
+.god-popup__icon {
+  font-size: 48px;
+  animation: god-popup-bounce 0.6s ease-out;
+}
+.god-popup__name {
+  font-size: 20px;
+  color: #a855f7;
+  margin: 4px 0;
+}
+.god-popup__desc {
+  font-size: 14px;
+  font-weight: 700;
+  color: #333;
+  background: #f3e8ff;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+@keyframes god-popup-bounce {
+  0% { transform: scale(0.3); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* 奇遇事件弹窗 */
+.chance-popup__icon {
+  font-size: 48px;
+  animation: chance-popup-shake 0.5s ease-out;
+}
+.chance-popup__title {
+  font-size: 20px;
+  color: #d97706;
+  margin: 4px 0;
+}
+.chance-popup__desc {
+  font-size: 14px;
+  font-weight: 700;
+  color: #333;
+  background: #fef3c7;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+@keyframes chance-popup-shake {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-8deg); }
+  75% { transform: rotate(8deg); }
+}
+
+/* 破产弹窗 */
+.bankrupt-popup__icon {
+  font-size: 48px;
+  animation: bankrupt-popup-shake 0.6s ease-out;
+}
+.bankrupt-popup__name {
+  font-size: 20px;
+  color: #ef4444;
+  margin: 4px 0;
+}
+.bankrupt-popup__desc {
+  font-size: 14px;
+  font-weight: 700;
+  color: #333;
+  background: #fee2e2;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+@keyframes bankrupt-popup-shake {
+  0%, 100% { transform: scale(1); }
+  25% { transform: scale(1.1); }
+  50% { transform: scale(0.95); }
+  75% { transform: scale(1.05); }
+}
+
 .fork-card__btns {
   display: flex;
   gap: 10px;
@@ -1164,6 +1584,57 @@ function onStockSell(payload) {
   font-variant-numeric: tabular-nums;
 }
 
+/* ===== 彩票开奖弹窗 ===== */
+.lottery-draw-popup { position: relative; overflow: visible; }
+.lottery-draw__icon { font-size: 48px; animation: lottery-bounce 0.6s ease; }
+@keyframes lottery-bounce {
+  0% { transform: scale(0); }
+  50% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+.lottery-draw__number { font-size: 18px; }
+.lottery-draw__number b { font-size: 32px; color: var(--pop-red); display: block; margin: 4px 0; }
+.lottery-draw__win { background: #fff3c4; border: 2.5px solid var(--ink); border-radius: 8px; padding: 12px; margin: 8px 0; }
+.lottery-draw__winner { font-size: 18px; font-weight: 900; color: var(--pop-red); }
+.lottery-draw__prize { font-size: 16px; margin-top: 4px; }
+.lottery-draw__prize b { font-size: 24px; color: var(--pop-red); }
+.lottery-draw__lose { font-size: 14px; opacity: 0.7; padding: 8px 0; }
+
+/* 礼花动画 */
+.confetti-container {
+  position: absolute;
+  inset: -60px -20px;
+  pointer-events: none;
+  overflow: visible;
+}
+.confetti {
+  position: absolute;
+  top: -10px;
+  left: var(--x);
+  width: 10px;
+  height: 10px;
+  background: var(--color);
+  border-radius: 2px;
+  animation: confetti-fall 2.5s ease-out var(--delay) forwards;
+  transform: rotate(var(--d));
+}
+@keyframes confetti-fall {
+  0% { transform: translateY(0) rotate(0deg) scale(1); opacity: 1; }
+  100% { transform: translateY(400px) rotate(720deg) scale(0.3); opacity: 0; }
+}
+
+/* ===== 决定先手顺序 ===== */
+.order-list { width: 100%; margin: 12px 0; display: flex; flex-direction: column; gap: 6px; }
+.order-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 2px solid var(--ink); border-radius: 8px; background: #fff; transition: all 0.2s; }
+.order-item--current { background: #fff3c4; box-shadow: 2px 2px 0 0 var(--ink); transform: scale(1.02); }
+.order-item--done { opacity: 0.7; }
+.order-item__dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--ink); flex-shrink: 0; }
+.order-item__name { font-size: 14px; font-weight: 900; }
+.order-item__name em { font-style: normal; font-size: 10px; color: #fff; background: var(--pop-red); border: 1px solid var(--ink); border-radius: 3px; padding: 0 3px; margin-left: 3px; }
+.order-item__dice { margin-left: auto; font-size: 13px; font-weight: 900; color: var(--pop-blue); }
+.order-item__dice b { font-size: 16px; color: var(--pop-red); }
+.order-item__wait { margin-left: auto; font-size: 12px; font-weight: 900; opacity: 0.5; }
+
 /* ===== 彩票 ===== */
 .lottery-info { font-size: 13px; font-weight: 900; margin: 8px 0; }
 .lottery-buy { width: 100%; }
@@ -1190,7 +1661,11 @@ function onStockSell(payload) {
 .lot-num:disabled { opacity: 0.3; cursor: not-allowed; background: #ddd; }
 .lot-num--taken { background: #fecaca !important; }
 .lot-num--mine { background: #86efac !important; border-width: 2.5px; }
+.lot-num--sel { background: #fde68a !important; border-width: 2.5px; box-shadow: inset 0 0 0 2px #f59e0b; }
 .lottery-my { font-size: 12px; font-weight: 900; padding: 6px 0; }
+.lottery-cart { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.lottery-cart__info { font-size: 13px; font-weight: 900; }
+.lottery-cart__info b { color: var(--pop-red); }
 
 /* ===== 交易预览 ===== */
 .trade-preview {
@@ -1220,6 +1695,47 @@ function onStockSell(payload) {
 .trade-preview__item--empty {
   opacity: 0.3;
   font-style: italic;
+}
+
+.net-loading {
+  margin: 40px auto;
+  padding: 24px 40px;
+  font-weight: 900;
+  font-size: 15px;
+}
+
+/* ===== 股票卡选股 ===== */
+.stock-picker {
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stock-picker__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 900;
+}
+.stock-picker__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.stock-picker__item {
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: #eef2ff;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 900;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.stock-picker__item:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 2px 2px 0 0 var(--ink);
+  background: #fff3c4;
 }
 
 @media (max-width: 860px) {

@@ -102,7 +102,7 @@ const specialTiles = computed(() => {
         <!-- 概览 -->
         <div v-if="activeTab === 'overview'" class="enc__section">
           <div class="enc__intro">
-            <h4 class="enc__h4">🎮 重庆大富翁</h4>
+            <h4 class="enc__h4">🎮 大富翁——重庆之旅</h4>
             <p>绕重庆主城区走一圈的棋盘大富翁。掷骰移动、买地建房、集齐商圈组合、用卡片互坑、买彩票、炒股、被神仙附身……最后剩下的人赢！</p>
           </div>
           <div class="enc__stats">
@@ -209,6 +209,14 @@ const specialTiles = computed(() => {
               <span>¥500/张，选1-100数字（全局唯一）。每5回合开奖，有人中奖→拿全部奖池（基础¥10000+购票金额），无人中奖→下回合换号继续。中奖后下回合直接新一轮。</span>
             </div>
           </div>
+          <h4 class="enc__h4" style="margin-top:14px">银行系统</h4>
+          <div class="enc__special-item">
+            <span class="enc__special-icon">🏦</span>
+            <div class="enc__special-info">
+              <b>银行贷款</b>
+              <span>手头紧时可向银行借款。最多可借总资产的 50%（含已借未还）。还款时加收 20% 利息（借 100 还 120）。贷款期限 10 回合，到期未还强制变卖地产。</span>
+            </div>
+          </div>
           <h4 class="enc__h4" style="margin-top:14px">特殊格子</h4>
           <div v-for="s in specialTiles" :key="s.id + s.label" class="enc__special-item">
             <span class="enc__special-icon">{{ s.icon }}</span>
@@ -280,9 +288,20 @@ const specialTiles = computed(() => {
           <ul>
             <li>路过彩票站（两路口/南桥寺）弹出购买</li>
             <li>¥500/张，选1-100数字（全局唯一，不可重复）</li>
+            <li>可一次选多张批量购买</li>
             <li>每5回合公布中奖数字</li>
             <li>有人中→拿全部奖池，下回合新一轮</li>
             <li>无人中→下回合换数字继续开</li>
+          </ul>
+
+          <h4 class="enc__h4">🏦 银行与贷款</h4>
+          <ul>
+            <li>点击百科全书旁的银行按钮打开借贷面板</li>
+            <li>最多可借总资产的 50%（含已借未还部分）</li>
+            <li>还款加收 20% 利息（借 ¥100 到期还 ¥120）</li>
+            <li>贷款期限 10 回合</li>
+            <li>到期未还：银行强制变卖地产（从最低价开始）</li>
+            <li>卖光仍不够→标记违约，剩余挂账</li>
           </ul>
         </div>
       </div>

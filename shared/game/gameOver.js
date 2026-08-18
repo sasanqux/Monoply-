@@ -38,6 +38,8 @@ export function checkBankrupt(state, player) {
     player.levels = {}
     player.mortgaged = {}
     state.log.push(`💸 ${player.name} 破产出局！`)
+    // 记录破产提示（供弹窗展示）
+    state._bankruptPopup = { playerId: player.id, playerName: player.name }
   }
 }
 

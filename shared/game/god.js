@@ -44,7 +44,7 @@ export function randomGod() {
 }
 
 // 处理神仙格落地
-// 返回 { applied: bool, log: string }
+// 返回 godId（附身的神仙id，崔斯特等即时型也返回id但不附身）
 export function handleGodTile(state, player) {
   const godId = randomGod()
   const god = GODS[godId]
@@ -64,7 +64,7 @@ export function handleGodTile(state, player) {
     player.godTurnsLeft = god.duration
     state.log.push(`${god.icon} ${god.name}附身了 ${player.name}（持续 ${god.duration} 回合）：${god.desc}`)
   }
-  return true
+  return godId
 }
 
 // 即时生效型神仙（崔斯特）

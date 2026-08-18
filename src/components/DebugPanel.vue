@@ -1,6 +1,6 @@
 <script setup>
 // DebugPanel.vue — 调试台（右下角悬浮）：传送 / 走N步 / 金钱 / 卡片 / 地产 / 回合 / 流程
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { TILES, CARDS, isPropertyTile } from '../game/index.js'
 
 const props = defineProps({
@@ -10,7 +10,21 @@ const props = defineProps({
 })
 const emit = defineEmits(['debug', 'teleport-mode', 'reset', 'fast-forward'])
 
-const open = ref(false)
+const open = ref(localStorage.getItem('dbg_panel') === '1')
+
+// 快捷键 Ctrl+Shift+D 切换调试台
+function onKeydown(e) {
+  if (e.ctrlKey && e.shiftKey && (e.key === 'd' || e.key === 'D')) {
+    e.preventDefault()
+    toggle()
+  }
+}
+function toggle() {
+  open.value = !open.value
+  localStorage.setItem('dbg_panel', open.value ? '1' : '0')
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 // 目标玩家：默认当前玩家，切换后记住
 const targetPid = ref(props.currentId || '')
@@ -30,6 +44,7 @@ const steps = ref(2)
 const money = ref(1000)
 const rounds = ref(5)
 const propTile = ref(2)
+const loanAmount = ref(1000)
 
 function dbg(action) {
   emit('debug', { ...action, playerId: targetPid.value })
@@ -41,7 +56,7 @@ function toggleTeleport() {
 
 <template>
   <div class="dbg">
-    <button class="dbg__fab" :title="open ? '收起调试台' : '打开调试台'" @click="open = !open">
+    <button class="dbg__fab" :title="open ? '收起调试台 (Ctrl+Shift+D)' : '打开调试台 (Ctrl+Shift+D)'" @click="toggle()">
       🛠<i v-if="teleportOn" class="dbg__dot" />
     </button>
 
@@ -109,6 +124,16 @@ function toggleTeleport() {
               </select>
               <button class="btn-comic btn-comic--sm" @click="dbg({ type: 'DEBUG_PROPERTY', tileId: propTile, level: 0 })">强买</button>
               <button class="btn-comic btn-comic--sm btn-comic--yellow" @click="dbg({ type: 'DEBUG_PROPERTY', tileId: propTile, level: 3 })">升满</button>
+            </div>
+          </section>
+
+          <!-- 银行贷款 -->
+          <section class="dbg__sec">
+            <h4 class="dbg__h">银行贷款</h4>
+            <div class="dbg__row">
+              <input v-model.number="loanAmount" class="input-comic input-comic--sm" type="number" min="100" step="100" />
+              <button class="btn-comic btn-comic--sm" @click="dbg({ type: 'DEBUG_TAKE_LOAN', amount: loanAmount || 1000 })">借钱</button>
+              <button class="btn-comic btn-comic--sm btn-comic--ghost" @click="dbg({ type: 'DEBUG_REPAY_LOAN', amount: loanAmount || 1000 })">还钱</button>
             </div>
           </section>
 
