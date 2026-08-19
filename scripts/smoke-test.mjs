@@ -1305,7 +1305,7 @@ console.log('\n▶ 银行贷款系统')
 
 console.log('▶ 随机奖金系统')
 {
-  // 设置奖金在 tile 2（弹子石），玩家踩到应领取 ¥2500 并刷新位置
+  // 设置奖金在 tile 2（弹子石），玩家踩到应领取奖金、弹出提示、刷新位置
   let s = makeState([{ id: 'p1', name: 'A', isAI: false }], 40, 20000)
   s.bonusTile = { id: 2, amount: 2500 }
   s.players[0].pos = 3 // 上新街，neighbors=[2,4]
@@ -1315,10 +1315,16 @@ console.log('▶ 随机奖金系统')
   const before = s.players[0].money
   const oldBonusId = s.bonusTile.id
   s = gameReducer(s, { type: 'DEBUG_MOVE', playerId: 'p1', steps: 1 }) // 走到弹子石(2)
-  check('踩中奖金格领取 ¥2500', s.players[0].money === before + 2500)
+  check('踩中奖金格领取奖金', s.players[0].money === before + 2500)
   check('奖金日志记录', s.log.some((l) => l.includes('💰') && l.includes('奖金')))
+  check('弹出奖金提示弹窗', s.pending?.kind === 'bonus_info')
+  check('弹窗显示获得者', s.pending?.playerName === 'A')
+  check('弹窗显示金额', s.pending?.amount === 2500)
+  check('弹窗显示下一个位置', s.pending?.nextTileId === s.bonusTile.id)
   check('奖金刷新到新位置', s.bonusTile.id !== oldBonusId && s.bonusTile.id !== 0)
-  check('奖金金额不变', s.bonusTile.amount === 2500)
+  // 关闭弹窗
+  s = gameReducer(s, { type: 'BONUS_INFO_CLOSE' })
+  check('关闭奖金弹窗', s.pending === null)
 }
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`)

@@ -42,10 +42,15 @@ export function handleLanding(state, player) {
   }
 
   // 随机奖金：踩到奖金格先到先得（在神仙/地产/事件之前触发，不影响其他流程）
+  let claimedBonus = null
   if (state.bonusTile?.id && player.pos === state.bonusTile.id) {
-    addMoney(state, player.id, state.bonusTile.amount, `💰 踩中随机奖金 ¥${state.bonusTile.amount}！`)
+    const gotAmount = state.bonusTile.amount
+    addMoney(state, player.id, gotAmount, `💰 踩中随机奖金 ¥${gotAmount}！`)
     respawnBonus(state)
+    claimedBonus = { playerName: player.name, amount: gotAmount, nextTileId: state.bonusTile.id }
   }
+  // 将 claimedBonus 存到 state，供 reducer 在 handleLanding 后使用
+  if (claimedBonus) state._claimedBonus = claimedBonus
 
   // 神仙格职能（在地产购买之前触发）
   state._godAfterBuy = null
@@ -496,16 +501,20 @@ export function nextTurn(state) {
   return state
 }
 
-// 领取奖金后刷新到另一个随机无主地产格
+// 领取奖金后刷新到另一个随机无主地产格，金额也随机
 function respawnBonus(state) {
+  const bonusAmounts = [1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
   const unowned = TILES.filter((t) =>
     t && isPropertyTile(t) && !t.removed &&
     !state.players.some((p) => p.properties.includes(t.id))
   ).filter((t) => t.id !== state.bonusTile?.id)
   if (unowned.length > 0) {
-    state.bonusTile.id = unowned[Math.floor(Math.random() * unowned.length)].id
+    state.bonusTile = {
+      id: unowned[Math.floor(Math.random() * unowned.length)].id,
+      amount: bonusAmounts[Math.floor(Math.random() * bonusAmounts.length)],
+    }
   } else {
-    state.bonusTile.id = 0 // 所有地产已有主，奖金消失
+    state.bonusTile = { id: 0, amount: bonusAmounts[Math.floor(Math.random() * bonusAmounts.length)] }
   }
 }
 

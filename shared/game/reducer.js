@@ -156,11 +156,12 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
     }
   }
 
-  // 随机奖金初始位置：出现在随机无主地产格
+  // 随机奖金初始位置：出现在随机无主地产格，金额随机（整千或整五百）
   const bonusCandidates = TILES.filter((t) => t && isPropertyTile(t) && !t.removed)
+  const bonusAmounts = [1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
   s.bonusTile = {
     id: bonusCandidates.length > 0 ? bonusCandidates[Math.floor(Math.random() * bonusCandidates.length)].id : 0,
-    amount: 2500,
+    amount: bonusAmounts[Math.floor(Math.random() * bonusAmounts.length)],
   }
 
   return s
@@ -657,6 +658,12 @@ export function gameReducer(state, action) {
       break
     }
 
+    // 奖金提示弹窗：关闭
+    case 'BONUS_INFO_CLOSE': {
+      if (s.pending?.kind === 'bonus_info') s.pending = null
+      break
+    }
+
     // 破产弹窗：关闭
     case 'BANKRUPT_CLOSE': {
       if (s.pending?.kind === 'bankrupt') s.pending = null
@@ -1054,6 +1061,11 @@ export function gameReducer(state, action) {
 
   if (result.log.length > MAX_LOG) {
     result.log.splice(0, result.log.length - MAX_LOG)
+  }
+  // 奖金领取后弹出提示弹窗（在落地结算之后，覆盖购买/商店等弹窗）
+  if (result._claimedBonus && result.status === 'playing') {
+    result.pending = { kind: 'bonus_info', ...result._claimedBonus }
+    result._claimedBonus = null
   }
   return result
 }

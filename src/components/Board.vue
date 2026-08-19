@@ -233,6 +233,7 @@ function onTile(t) {
         'tile--start': t.type === 'start',
         'tile--unowned': isUnownedHighlight(t),
         'tile--mortgaged': isMortgagedTile(t),
+        'tile--bonus-glow': state.bonusTile?.id === t.id,
       }"
       :style="{ left: posOf(t.id).x + '%', top: posOf(t.id).y + '%', width: tileSize(t).w, height: tileSize(t).h, background: tileBg(t), color: tileFg(t), '--attr': tileAttrColor(t) }"
       :title="t.name + (t.sub ? ' · ' + t.sub : '') + (ownerOf(t.id) ? ' · 拥有者 ' + ownerOf(t.id).name : '')"
@@ -245,7 +246,7 @@ function onTile(t) {
       <span v-if="t.shop" class="tile__cardshop" title="卡片商店：路过可购买卡片">卡</span>
       <span v-if="t.lottery" class="tile__lottery-mark" title="彩票站">🎫</span>
       <span v-if="t.god" class="tile__god-mark" title="神仙格">👻</span>
-      <span v-if="state.bonusTile?.id === t.id" class="tile__bonus" title="随机奖金 ¥2,500">💰</span>
+      <span v-if="state.bonusTile?.id === t.id" class="tile__bonus" title="随机奖金">💰</span>
 
       <span v-if="isClosed(t.id)" class="tile__closed"><ComicIcon name="closed" :size="16" /></span>
 
@@ -523,17 +524,23 @@ function onTile(t) {
 
 .tile__bonus {
   position: absolute;
-  top: -2px;
-  right: -2px;
-  font-size: 1.2cqw;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 2.4cqw;
   line-height: 1;
-  z-index: 3;
+  z-index: 1;
+  pointer-events: none;
   animation: bonus-bounce 1.2s ease-in-out infinite;
-  filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.4));
+  filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.8));
 }
 @keyframes bonus-bounce {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-3px) scale(1.1); }
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.15); }
+}
+.tile--bonus-glow {
+  box-shadow: 0 0 12px 4px rgba(251, 191, 36, 0.8), inset 0 0 8px rgba(251, 191, 36, 0.4);
+  border-color: #fbbf24 !important;
 }
 
 .tile__owner {

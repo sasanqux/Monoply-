@@ -700,6 +700,13 @@ const showBankruptPopup = computed(() => {
   if (!st || st.pending?.kind !== 'bankrupt') return false
   return true
 })
+// 奖金提示弹窗：所有玩家可见
+const showBonusInfo = computed(() => {
+  const st = state.value
+  if (!st || st.pending?.kind !== 'bonus_info') return false
+  if (animating.value || diceThrowing.value || selecting.value) return false
+  return true
+})
 const myNumbers = computed(() => {
   const st = state.value
   if (!st || !cur.value) return []
@@ -1156,6 +1163,17 @@ function onStockSell(payload) {
         </div>
       </div>
 
+      <!-- 奖金提示弹窗 -->
+      <div v-if="showBonusInfo" class="overlay-layer fork-card-overlay">
+        <div class="card-comic card-comic--pad-lg fork-card bonus-popup">
+          <div class="fork-card__dice bonus-popup__icon">🎉</div>
+          <h3 class="comic-title comic-title--md">奖金揭晓</h3>
+          <p class="fork-card__sub bonus-popup__player">{{ state.pending.playerName }} 获得了 ¥{{ state.pending.amount }} 奖金！</p>
+          <div class="bonus-popup__next">下一个奖金在「{{ TILES[state.pending.nextTileId]?.name ?? '?' }}」</div>
+          <button class="btn-comic" @click="dispatch({ type: 'BONUS_INFO_CLOSE' })">知道了</button>
+        </div>
+      </div>
+
       <!-- 交易面板 -->
       <TradeModal
         v-if="showTradeModal"
@@ -1455,6 +1473,31 @@ function onStockSell(payload) {
   75% { transform: scale(1.05); }
 }
 
+/* 奖金提示弹窗 */
+.bonus-popup__icon {
+  font-size: 48px;
+  animation: bonus-popup-bounce 0.6s ease-out;
+}
+.bonus-popup__player {
+  font-size: 20px;
+  color: #d97706;
+  margin: 4px 0;
+}
+.bonus-popup__next {
+  font-size: 14px;
+  font-weight: 700;
+  color: #333;
+  background: #fef3c7;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+@keyframes bonus-popup-bounce {
+  0% { transform: scale(0.3); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 .fork-card__btns {
   display: flex;
   gap: 10px;
@@ -1738,9 +1781,164 @@ function onStockSell(payload) {
   background: #fff3c4;
 }
 
-@media (max-width: 860px) {
+/* ===== 手机端适配（不影响桌面） ===== */
+@media (max-width: 768px) {
   .app__game {
     grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  /* 棋盘：保持最小可读宽度，横向滚动 */
+  .board-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .board-anchor {
+    min-width: 360px;
+  }
+  :deep(.board) {
+    width: max(100vw - 16px, 360px) !important;
+    max-width: 500px !important;
+    height: auto !important;
+    aspect-ratio: 100 / 85;
+  }
+  /* 手机端：去掉价格/积分，放大地名，边框变窄 */
+  :deep(.tile__price),
+  :deep(.tile__points) {
+    display: none !important;
+  }
+  :deep(.tile__name) {
+    font-size: 1.4cqw !important;
+    line-height: 1.1;
+  }
+  :deep(.tile) {
+    border-width: 2px !important;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55), 1.5px 1.5px 0 0 var(--attr, var(--ink)) !important;
+  }
+  :deep(.tile__fork) {
+    width: 1.2em;
+    height: 1.2em;
+    font-size: 0.8cqw;
+  }
+
+  /* 右侧面板：手机堆叠在棋盘下方，紧凑显示 */
+  .app__game {
+    gap: 6px;
+  }
+  .app__game > aside {
+    width: 100%;
+  }
+  :deep(.side) {
+    flex-direction: column;
+    gap: 6px;
+  }
+  :deep(.side__block) {
+    padding: 8px 10px;
+  }
+  :deep(.side__block--grow) {
+    max-height: 150px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  :deep(.players) {
+    gap: 3px;
+  }
+  :deep(.player__row) {
+    padding: 5px 6px;
+    gap: 5px;
+  }
+  :deep(.player__name) {
+    font-size: 13px;
+  }
+  :deep(.player__money) {
+    font-size: 13px;
+  }
+  :deep(.log) {
+    max-height: 60px;
+    font-size: 12px;
+  }
+  :deep(.chat) {
+    display: none;
+  }
+
+  /* 底部栏纵向堆叠 */
+  .app__bags {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .bags {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .bags__btns {
+    justify-content: center;
+  }
+  .bags__status {
+    width: 100%;
+  }
+  .bags__status-card {
+    width: 100%;
+  }
+
+  /* 弹窗加大触摸区域 */
+  .modal-card,
+  .fork-card,
+  .info {
+    max-width: calc(100vw - 24px) !important;
+    padding: 16px !important;
+  }
+  .btn-comic {
+    min-height: 44px; /* Apple 推荐最小触摸目标 */
+    padding: 10px 16px;
+    font-size: 14px;
+  }
+  .btn-comic--sm {
+    min-height: 36px;
+    padding: 6px 12px;
+  }
+
+  /* 彩票号码网格加大 */
+  .lottery-numbers {
+    max-height: 260px;
+  }
+  .lot-num {
+    font-size: 11px;
+  }
+
+  /* 百科全书弹窗 */
+  .enc {
+    max-height: 80vh;
+    max-width: calc(100vw - 24px);
+  }
+
+  /* 调试台面板缩小 */
+  :deep(.dbg__panel) {
+    width: calc(100vw - 28px);
+    max-height: 60vh;
+  }
+
+  /* 底部入口弹窗 */
+  :deep(.my-panel) {
+    max-width: calc(100vw - 24px);
+  }
+}
+
+@media (max-width: 480px) {
+  .bags__timers {
+    gap: 4px;
+  }
+  .bags__chip {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+  .bags__round-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+  }
+  .bags__turn-player {
+    font-size: 12px;
   }
 }
 </style>
