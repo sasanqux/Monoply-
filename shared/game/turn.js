@@ -41,6 +41,12 @@ export function handleLanding(state, player) {
     state.log.push(`${player.name} 到达「${tile.name}」，获得 ${tile.points} 卡片积分（共 ${player.points}）`)
   }
 
+  // 随机奖金：踩到奖金格先到先得（在神仙/地产/事件之前触发，不影响其他流程）
+  if (state.bonusTile?.id && player.pos === state.bonusTile.id) {
+    addMoney(state, player.id, state.bonusTile.amount, `💰 踩中随机奖金 ¥${state.bonusTile.amount}！`)
+    respawnBonus(state)
+  }
+
   // 神仙格职能（在地产购买之前触发）
   state._godAfterBuy = null
   if (tile.god && !state.pending) {
@@ -488,6 +494,19 @@ export function nextTurn(state) {
     state.log.push(`⏱ 已达 ${state.settings.maxTurns} 回合上限，按总资产结算，${wName} 获胜！`)
   }
   return state
+}
+
+// 领取奖金后刷新到另一个随机无主地产格
+function respawnBonus(state) {
+  const unowned = TILES.filter((t) =>
+    t && isPropertyTile(t) && !t.removed &&
+    !state.players.some((p) => p.properties.includes(t.id))
+  ).filter((t) => t.id !== state.bonusTile?.id)
+  if (unowned.length > 0) {
+    state.bonusTile.id = unowned[Math.floor(Math.random() * unowned.length)].id
+  } else {
+    state.bonusTile.id = 0 // 所有地产已有主，奖金消失
+  }
 }
 
 export function currentPlayer(state) {

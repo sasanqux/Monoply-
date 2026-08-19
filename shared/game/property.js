@@ -1,9 +1,11 @@
 // property.js — 地产：买地 / 收租（商圈加成）/ 开店升级 / 卖地 / 资产估值
 import { TILES, isPropertyTile, groupTiles, UPGRADE_COST_RATIO, GROUPS } from './board.js'
 
-// 基础租金（按等级 0~3）
+// 基础租金（按等级 0~3，倍率递增鼓励升级）
+const LEVEL_RENT_MULT = [1, 2.2, 3.8, 5.5]
 export function baseRent(tile, level = 0) {
-  return tile.rent * (1 + level)
+  const mult = LEVEL_RENT_MULT[level] ?? 1
+  return Math.round(tile.rent * mult)
 }
 
 // 组合达成所需地块数（从 GROUPS 读取 threshold）

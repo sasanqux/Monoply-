@@ -64,7 +64,6 @@ export function repayLoan(state, player, amount) {
 // 强制变卖：从最低价地产开始卖，直到凑够金额；返回 { enough, raised }
 export function forceSellForLoan(state, player, amount) {
   let raised = 0
-  const sellPrice = (tile) => Math.round(tile.price * SELL_RATIO)
   const sorted = [...player.properties]
     .filter((idx) => !player.mortgaged?.[idx])
     .sort((a, b) => TILES[a].price - TILES[b].price)
@@ -72,7 +71,9 @@ export function forceSellForLoan(state, player, amount) {
   for (const idx of sorted) {
     if (raised >= amount) break
     const tile = TILES[idx]
-    const sp = sellPrice(tile)
+    const level = player.levels[idx] ?? 0
+    const upgradeCost = Math.round(tile.price * 0.5)
+    const sp = Math.round((tile.price + upgradeCost * level) * SELL_RATIO)
     raised += sp
     player.properties = player.properties.filter((i) => i !== idx)
     delete player.levels[idx]

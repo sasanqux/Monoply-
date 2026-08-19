@@ -19,7 +19,9 @@ export function checkBankrupt(state, player) {
   for (const idx of owned) {
     if (player.money >= 0) break
     const tile = TILES[idx]
-    const sellPrice = Math.round(tile.price * SELL_RATIO)
+    const level = player.levels[idx] ?? 0
+    const upgradeCost = Math.round(tile.price * 0.5) // UPGRADE_COST_RATIO = 0.5
+    const sellPrice = Math.round((tile.price + upgradeCost * level) * SELL_RATIO)
     player.money += sellPrice
     player.properties = player.properties.filter((i) => i !== idx)
     delete player.levels[idx]

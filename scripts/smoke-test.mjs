@@ -17,7 +17,10 @@ import {
 } from '../shared/game/index.js'
 
 function makeState(players, maxTurns = 40, startMoney = 5000) {
-  return createInitialState({ players, maxTurns, startMoney })
+  const s = createInitialState({ players, maxTurns, startMoney })
+  // 禁用随机奖金，避免随机位置干扰测试断言（奖金系统有单独测试）
+  s.bonusTile = { id: 0, amount: 2500 }
+  return s
 }
 
 let pass = 0
@@ -301,7 +304,7 @@ console.log('▶ 组合规则（7 中 4 / 8 中 5 · 租金×1.5 · 人文旅游
   // 达成后租金 ×1.5：解放碑基础租 2000 → 3000
   a.properties = [44, 45, 46, 47, 49]
   a.levels = { 49: 0 }
-  check('组合达成租金 ×1.5（2000→3000）', getRent(s, TILES[49], 0) === 3000)
+  check('组合达成租金 ×1.5（1250→1875）', getRent(s, TILES[49], 0) === 1875)
   // 8 格组：4 块不达标、5 块达成（南岸滨江 = 2,3,4,5,7,8,9,10）
   a.properties = [2, 3, 4, 5]
   a.levels = { 2: 0, 3: 0, 4: 0, 5: 0 }
@@ -459,11 +462,11 @@ console.log('▶ AI 会用卡/乘轻轨')
 
 console.log('▶ 数值套用检查（自动套地价/租金）')
 {
-  check('解放碑(商圈) 价 10000 / 租 2000', TILES[49].price === 10000 && TILES[49].rent === 2000)
+  check('解放碑(商圈) 价 5000 / 租 1250', TILES[49].price === 5000 && TILES[49].rent === 1250)
   check('朝天门 起点无价', TILES[1].type === 'start' && TILES[1].price == null)
-  check('大渡口 普通地产 价 4000 / 租 800', TILES[11].price === 4000 && TILES[11].rent === 800)
-  check('江北机场 价 6000（繁华）', TILES[29].price === 6000)
-  check('轻轨站 价 4000 / 租 300', TILES[5].price === 4000 && TILES[5].rent === 300)
+  check('大渡口 普通地产 价 2000 / 租 500', TILES[11].price === 2000 && TILES[11].rent === 500)
+  check('江北机场 价 3000（繁华）', TILES[29].price === 3000)
+  check('轻轨站 价 2000 / 租 500', TILES[5].price === 2000 && TILES[5].rent === 500)
 }
 
 console.log('▶ reducer 能处理 Proxy（浏览器真实场景）')
@@ -607,10 +610,10 @@ console.log('▶ 免租卡询问弹窗（人类玩家 SHIELD_USE / SHIELD_SKIP�
 
   // SHIELD_SKIP：不使用 → 正常付租 1600、pending 清空
   const r2 = gameReducer(base(), { type: 'SHIELD_SKIP' })
-  check('SHIELD_SKIP 正常付租金', r2.players[0].money === 20000 - 1600)
+  check('SHIELD_SKIP 正常付租金', r2.players[0].money === 20000 - 1100)
   check('SHIELD_SKIP 免租卡保留', r2.players[0].hand.some(c => c.id === 'h-shield'))
   check('SHIELD_SKIP 清除 pending', r2.pending === null)
-  check('SHIELD_SKIP 房东收到租金', r2.players[1].money === 20000 + 1600)
+  check('SHIELD_SKIP 房东收到租金', r2.players[1].money === 20000 + 1100)
 }
 
 console.log('▶ 大坪→化龙桥→两路口（直行通路）')
@@ -691,9 +694,9 @@ console.log('▶ 神仙系统')
   s.players[1].hand = [] // 清空手牌，避免随机抽到免租卡自动豁免导致断言不稳
   // p2 踩 p1 的弹子石：基础租 800，财神 ×2 = 1600
   s = gameReducer(s, { type: 'DEBUG_TELEPORT', playerId: 'p2', tileId: 2 })
-  const hasGodRent = s.log.some((l) => l.includes('1600'))
-  check('财神收租 ×2（800→1600）', hasGodRent)
-  check('财神收租后 p2 扣 1600', s.players[1].money === 8400)
+  const hasGodRent = s.log.some((l) => l.includes('1000'))
+  check('财神收租 ×2（500→1000）', hasGodRent)
+  check('财神收租后 p2 扣 1000', s.players[1].money === 9000)
 
   // 送神卡：送走神仙
   s = cardReady(makeState([
@@ -793,7 +796,7 @@ console.log('▶ 神仙系统')
   s.players[1].money = 10000
   s.players[1].hand = [] // 清空手牌，避免随机抽到免租卡自动豁免导致断言不稳
   s = gameReducer(s, { type: 'DEBUG_TELEPORT', playerId: 'p2', tileId: 2 })
-  check('衰神收租 ×0.5（800→400）', s.players[1].money === 9600)
+  check('衰神收租 ×0.5（500→250）', s.players[1].money === 9750)
 
   // 已有神仙时会被新神仙覆盖
   s = makeState([
@@ -1250,12 +1253,12 @@ console.log('\n▶ 银行贷款系统')
   s.players[0].loanRepay = 1200
   s.players[0].loanDue = 3
   s.players[0].money = 500
-  s.players[0].properties = [7] // 南彭 price=2000, sell=800
-  s.players[0].levels = { 7: 0 }
+  s.players[0].properties = [2] // 弹子石 price=2000, sell=1000
+  s.players[0].levels = { 2: 0 }
   s.round = 3
   s.phase = 'roll'
   s = gameReducer(s, { type: 'ROLL_DICE' })
-  check('到期强制变卖：地产被卖', !s.players[0].properties.includes(7))
+  check('到期强制变卖：地产被卖', !s.players[0].properties.includes(2))
   check('到期强制变卖：贷款清零', s.players[0].loan === 0 && s.players[0].loanRepay === 0)
 
   // 总资产减去贷款
@@ -1270,13 +1273,13 @@ console.log('\n▶ 银行贷款系统')
   s.players[0].loanRepay = 6000
   s.players[0].loanDue = 3
   s.players[0].money = 2000
-  s.players[0].properties = [7, 9, 2, 3] // sell: 800+800+1600+1600=4800
-  s.players[0].levels = { 7: 0, 9: 0, 2: 0, 3: 0 }
+  s.players[0].properties = [7, 9, 2, 3, 49] // 含解放碑, sell: 500+500+1000+1000+2500=5500
+  s.players[0].levels = { 7: 0, 9: 0, 2: 0, 3: 0, 49: 0 }
   s.round = 3
   s.phase = 'roll'
   s = gameReducer(s, { type: 'ROLL_DICE' })
   check('到期混合还款：贷款清零', s.players[0].loan === 0 && s.players[0].loanRepay === 0)
-  check('到期混合还款：剩余现金正确', s.players[0].money === 2000 + 4800 - 6000)
+  check('到期混合还款：剩余现金正确', s.players[0].money === 2000 + 5500 - 6000)
 
   // 到期混合还款（卖光+现金仍不够 → 违约挂账）
   s = makeState([{ id: 'p1', name: 'A', isAI: false }], 40, 20000)
@@ -1284,12 +1287,12 @@ console.log('\n▶ 银行贷款系统')
   s.players[0].loanRepay = 6000
   s.players[0].loanDue = 3
   s.players[0].money = 1000
-  s.players[0].properties = [7] // sell=800, 总共 1800 < 6000
+  s.players[0].properties = [7] // 南彭 price=1000, sell=500, 总共 1500 < 6000
   s.players[0].levels = { 7: 0 }
   s.round = 3
   s.phase = 'roll'
   s = gameReducer(s, { type: 'ROLL_DICE' })
-  check('到期违约：剩余挂账', s.players[0].loanRepay === 6000 - 1000 - 800)
+  check('到期违约：剩余挂账', s.players[0].loanRepay === 6000 - 1000 - 500)
   check('到期违约：现金归零', s.players[0].money === 0)
 
   // 贷款期间不能移动中借款（阶段保护）
@@ -1298,6 +1301,24 @@ console.log('\n▶ 银行贷款系统')
   s.stepsRemaining = 3
   const sLoan = gameReducer(s, { type: 'TAKE_LOAN', amount: 5000 })
   check('移动中不能贷款', sLoan.players[0].loan === 0)
+}
+
+console.log('▶ 随机奖金系统')
+{
+  // 设置奖金在 tile 2（弹子石），玩家踩到应领取 ¥2500 并刷新位置
+  let s = makeState([{ id: 'p1', name: 'A', isAI: false }], 40, 20000)
+  s.bonusTile = { id: 2, amount: 2500 }
+  s.players[0].pos = 3 // 上新街，neighbors=[2,4]
+  s.players[0].cameFrom = 4 // 从南山来 → 往弹子石(2)走
+  s.phase = 'roll'
+  s.players[0].walkPath = [3]
+  const before = s.players[0].money
+  const oldBonusId = s.bonusTile.id
+  s = gameReducer(s, { type: 'DEBUG_MOVE', playerId: 'p1', steps: 1 }) // 走到弹子石(2)
+  check('踩中奖金格领取 ¥2500', s.players[0].money === before + 2500)
+  check('奖金日志记录', s.log.some((l) => l.includes('💰') && l.includes('奖金')))
+  check('奖金刷新到新位置', s.bonusTile.id !== oldBonusId && s.bonusTile.id !== 0)
+  check('奖金金额不变', s.bonusTile.amount === 2500)
 }
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`)

@@ -245,6 +245,7 @@ function onTile(t) {
       <span v-if="t.shop" class="tile__cardshop" title="卡片商店：路过可购买卡片">卡</span>
       <span v-if="t.lottery" class="tile__lottery-mark" title="彩票站">🎫</span>
       <span v-if="t.god" class="tile__god-mark" title="神仙格">👻</span>
+      <span v-if="state.bonusTile?.id === t.id" class="tile__bonus" title="随机奖金 ¥2,500">💰</span>
 
       <span v-if="isClosed(t.id)" class="tile__closed"><ComicIcon name="closed" :size="16" /></span>
 
@@ -519,6 +520,21 @@ function onTile(t) {
 }
 .tile__lottery-mark { background: #f97316; }
 .tile__god-mark { background: #a855f7; }
+
+.tile__bonus {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  font-size: 1.2cqw;
+  line-height: 1;
+  z-index: 3;
+  animation: bonus-bounce 1.2s ease-in-out infinite;
+  filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.4));
+}
+@keyframes bonus-bounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-3px) scale(1.1); }
+}
 
 .tile__owner {
   position: absolute;

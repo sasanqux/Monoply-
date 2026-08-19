@@ -156,6 +156,13 @@ export function createInitialState({ players, maxTurns = 40, startMoney = START_
     }
   }
 
+  // 随机奖金初始位置：出现在随机无主地产格
+  const bonusCandidates = TILES.filter((t) => t && isPropertyTile(t) && !t.removed)
+  s.bonusTile = {
+    id: bonusCandidates.length > 0 ? bonusCandidates[Math.floor(Math.random() * bonusCandidates.length)].id : 0,
+    amount: 2500,
+  }
+
   return s
 }
 
