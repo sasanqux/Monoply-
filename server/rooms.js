@@ -225,6 +225,16 @@ export function handleAction(socketId, action) {
     return { error: '拍卖进行中，只能出价或等揭晓' }
   }
 
+  // 开局掷骰定顺序：按 orderState.index 分权（轮到谁谁掷），否则非房主玩家永远掷不了
+  if (gs.phase === 'order' && gs.orderState && !gs.orderState.done) {
+    if (action.type !== 'ROLL_ORDER') return { error: '开局阶段只能掷骰定顺序' }
+    const orderP = gs.players[gs.orderState.index]
+    if (!orderP || player.id !== orderP.id) return { error: '还没轮到你掷骰' }
+    room._aiGuard = 0
+    applyAction(room, action)
+    return { ok: true, room }
+  }
+
   // 其余操作：仅当前回合玩家
   if (!cur || player.id !== cur.id) return { error: '还没轮到你' }
 
@@ -268,6 +278,13 @@ export function serverNextAction(room) {
   if (!gs || gs.status !== 'playing') return null
   const isDisconnected = (gp) =>
     !!gp && !!room.players.find((rp) => rp.id === gp.id)?.disconnected
+
+  // 开局掷骰定顺序：轮到掉线玩家也由服务器代掷
+  if (gs.phase === 'order' && gs.orderState && !gs.orderState.done) {
+    const orderP = gs.players[gs.orderState.index]
+    if (isDisconnected(orderP)) return { type: 'ROLL_ORDER' }
+    return null
+  }
 
   // 交易：对方掉线 → AI 评估响应
   if (gs.pending?.kind === 'trade') {

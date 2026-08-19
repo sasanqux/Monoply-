@@ -578,6 +578,41 @@ console.log('▶ 免租卡豁免租金')
   check('免租卡被消耗（从手牌移除）', !r.players[0].hand.some(c => c.id === 'test-shield'))
 }
 
+console.log('▶ 免租卡询问弹窗（人类玩家 SHIELD_USE / SHIELD_SKIP）')
+{
+  // 人类玩家持免租卡落到对手地 → checkShieldCard 返回 'ask' → 挂 shield pending
+  // 此前 SHIELD_USE/SHIELD_SKIP 因 reducer 缺 import 必崩；这里覆盖这两条路径。
+  const base = () => {
+    const s = makeState([
+      { id: 'p1', name: '我', isAI: false },
+      { id: 'p2', name: 'B', isAI: true },
+    ], 40)
+    s.players[1].properties = [2] // 弹子石归 B
+    s.players[1].levels = { 2: 1 } // 1 级：租金 800×2 = 1600
+    s.players[0].pos = 2
+    s.players[0].money = 20000
+    s.players[1].money = 20000
+    s.players[0].hand = [{ type: 'shield', name: '免租卡', id: 'h-shield', desc: '', icon: '' }]
+    s.pending = { kind: 'shield', tileId: 2, ownerId: 'p2', feeName: '租金' }
+    s.phase = 'landed'
+    s.turnIndex = 0
+    return s
+  }
+
+  // SHIELD_USE：使用免租卡 → 不扣钱、卡被消耗、pending 清空
+  const r1 = gameReducer(base(), { type: 'SHIELD_USE' })
+  check('SHIELD_USE 不扣租金', r1.players[0].money === 20000)
+  check('SHIELD_USE 消耗免租卡', !r1.players[0].hand.some(c => c.id === 'h-shield'))
+  check('SHIELD_USE 清除 pending', r1.pending === null)
+
+  // SHIELD_SKIP：不使用 → 正常付租 1600、pending 清空
+  const r2 = gameReducer(base(), { type: 'SHIELD_SKIP' })
+  check('SHIELD_SKIP 正常付租金', r2.players[0].money === 20000 - 1600)
+  check('SHIELD_SKIP 免租卡保留', r2.players[0].hand.some(c => c.id === 'h-shield'))
+  check('SHIELD_SKIP 清除 pending', r2.pending === null)
+  check('SHIELD_SKIP 房东收到租金', r2.players[1].money === 20000 + 1600)
+}
+
 console.log('▶ 大坪→化龙桥→两路口（直行通路）')
 {
   // 大坪(52) neighbors=[51,44]：从 51 来 → 可选 [44]（直行）
@@ -653,6 +688,7 @@ console.log('▶ 神仙系统')
   s.players[0].properties = [2] // p1 拥有弹子石
   s.players[0].levels = { 2: 0 }
   s.players[1].money = 10000
+  s.players[1].hand = [] // 清空手牌，避免随机抽到免租卡自动豁免导致断言不稳
   // p2 踩 p1 的弹子石：基础租 800，财神 ×2 = 1600
   s = gameReducer(s, { type: 'DEBUG_TELEPORT', playerId: 'p2', tileId: 2 })
   const hasGodRent = s.log.some((l) => l.includes('1600'))
@@ -755,6 +791,7 @@ console.log('▶ 神仙系统')
   s.players[0].properties = [2]
   s.players[0].levels = { 2: 0 }
   s.players[1].money = 10000
+  s.players[1].hand = [] // 清空手牌，避免随机抽到免租卡自动豁免导致断言不稳
   s = gameReducer(s, { type: 'DEBUG_TELEPORT', playerId: 'p2', tileId: 2 })
   check('衰神收租 ×0.5（800→400）', s.players[1].money === 9600)
 

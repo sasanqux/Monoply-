@@ -45,7 +45,7 @@ const lands = computed(() => {
       tag: isBridge(t) ? '桥' : isMetro(t) ? '轻轨' : '',
       lv,
       shop: SHOPS[lv],
-      canUp: props.isMyTurn && isPropertyTile(t) && !(t.type === 'metro' && !t.upgradable) && lv < 3 && props.me.money >= upgradeCost(t),
+      canUp: props.isMyTurn && isPropertyTile(t) && !(isMetro(t) && !t.upgradable) && lv < 3 && props.me.money >= upgradeCost(t),
       group,
       mortgaged,
       canMortgage: !mortgaged && canMortgage(props.me, id),

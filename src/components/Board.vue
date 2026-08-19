@@ -248,8 +248,8 @@ function onTile(t) {
 
       <span v-if="isClosed(t.id)" class="tile__closed"><ComicIcon name="closed" :size="16" /></span>
 
-      <!-- 路障标记 -->
-      <span v-if="t.barrier" class="tile__barrier" title="路障">🚧</span>
+      <!-- 路障标记（路障存在 state.barriers，不污染全局 TILES） -->
+      <span v-if="state.barriers?.[t.id]" class="tile__barrier" title="路障">🚧</span>
 
       <span v-if="isPropertyTile(t) && ownerOf(t.id) && levelOf(t.id) > 0" class="tile__shop" :title="'等级' + levelOf(t.id)">
         {{ levelOf(t.id) }}

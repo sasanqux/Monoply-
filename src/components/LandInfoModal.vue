@@ -78,7 +78,7 @@ const canUpgrade = computed(() => {
   if (!isPropertyTile(t) || !owner.value) return false
   if (owner.value.id !== props.state.players[props.state.turnIndex].id) return false
   if (props.state.players[props.state.turnIndex].isAI) return false
-  if (t.type === 'metro' && !t.upgradable) return false
+  if (isMetro(t) && !t.upgradable) return false
   return level.value < 3
 })
 

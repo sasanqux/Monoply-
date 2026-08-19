@@ -179,6 +179,20 @@ try {
       continue
     }
 
+    // ---- 开局掷骰定顺序：按 orderState.index 分权，轮到谁谁掷 ----
+    if (st.phase === 'order' && st.orderState && !st.orderState.done) {
+      const orderP = st.players[st.orderState.index]
+      const actor = orderP.id === A.myId ? A : orderP.id === Bc.myId ? Bc : null
+      if (actor && actor.sock.connected) {
+        const res = await actor.emit('action', { type: 'ROLL_ORDER' })
+        if (res?.error) { check('开局掷骰被错误拒绝: ' + res.error, false); break }
+      } else {
+        await sleep(1200) // 掉线托管掷骰
+      }
+      await sleep(150)
+      continue
+    }
+
     // ---- 掉线托管（P0-6）：round>=2 后断开 B，轮到 B 时等服务器代打，然后重连 ----
     if (!phase1.disconnectStarted && st.round >= 2 && phase1.tradeTested) {
       phase1.disconnectStarted = true

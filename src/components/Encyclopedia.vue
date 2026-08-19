@@ -60,6 +60,9 @@ const specialTiles = computed(() => {
   }
   return specials
 })
+
+// 分岔路口数：3 个及以上邻居的格子（动态计算，避免硬编码漂移）
+const forkCount = computed(() => TILES.filter((t) => t && !t.removed && t.neighbors && t.neighbors.length >= 3).length)
 </script>
 
 <template>
@@ -110,7 +113,7 @@ const specialTiles = computed(() => {
             <div class="enc__stat"><b>{{ CARDS.length }}</b><span>卡片种类</span></div>
             <div class="enc__stat"><b>{{ Object.keys(GROUPS).length }}</b><span>商圈组合</span></div>
             <div class="enc__stat"><b>{{ Object.keys(STOCKS).length }}</b><span>股票数量</span></div>
-            <div class="enc__stat"><b>7</b><span>分岔路口</span></div>
+            <div class="enc__stat"><b>{{ forkCount }}</b><span>分岔路口</span></div>
             <div class="enc__stat"><b>{{ Object.keys(GODS).length }}</b><span>神仙种类</span></div>
           </div>
           <div class="enc__links">

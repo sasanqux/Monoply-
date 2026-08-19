@@ -41,15 +41,15 @@
 /**
  * @typedef {PendingBuy|PendingAuction|PendingFork|PendingShop|PendingMetro|PendingCheckin|null} Pending
  */
-import { TILES, START_MONEY_DEFAULT, isPropertyTile, isMetro, METRO_FEE } from './board.js'
+import { TILES, START_MONEY_DEFAULT, isPropertyTile, isMetro, METRO_FEE, GROUPS } from './board.js'
 import { rollForPlayer, movePlayer, stepOneTile } from './movement.js'
-import { addMoney, takeLoan, repayLoan, processLoanDue, loanLimit } from './bank.js'
-import { upgradeCost, mortgageTile, unmortgageTile, totalAssets } from './property.js'
+import { addMoney, takeLoan, repayLoan, processLoanDue, loanLimit, payMoney } from './bank.js'
+import { upgradeCost, mortgageTile, unmortgageTile, totalAssets, getRent, isGroupComplete } from './property.js'
 import { applyCard, cardTargetKind, CARDS, randomCard } from './card.js'
 import { handleLanding, nextTurn, currentPlayer } from './turn.js'
 import { checkBankrupt } from './gameOver.js'
-import { GODS } from './god.js'
-import { initLotteryState, buyTicket, buyTickets, tryTriggerLottery, LOTTERY_TILES } from './lottery.js'
+import { GODS, godRentMultiplier, godFeeMultiplier } from './god.js'
+import { initLotteryState, buyTicket, buyTickets, tryTriggerLottery, tryTriggerLotteryDeferred, LOTTERY_TILES } from './lottery.js'
 import { initStockRuntime, buyStock, sellStock, tickStockPrices, applyBlackStock, applyRedStock } from './stock.js'
 
 // 玩家配色（方案 B 纯色板）：避开地图属性色（地产黑/景点绿/轻轨青/商圈紫/起点棕/事件黄）

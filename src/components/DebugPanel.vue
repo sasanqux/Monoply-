@@ -151,7 +151,7 @@ function toggleTeleport() {
                 :key="'sw' + p.id"
                 class="btn-comic btn-comic--sm btn-comic--ghost"
                 :class="{ 'btn-comic--blue': currentId === p.id }"
-                @click="dbg({ type: 'DEBUG_SWITCH_TURN' })"
+                @click="emit('debug', { type: 'DEBUG_SWITCH_TURN', playerId: p.id })"
               >轮到{{ p.name }}</button>
             </div>
           </section>
