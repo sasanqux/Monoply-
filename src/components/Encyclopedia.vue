@@ -204,6 +204,14 @@ const forkCount = computed(() => TILES.filter((t) => t && !t.removed && t.neighb
               <em>持续 {{ g.duration }} 回合</em>
             </div>
           </div>
+          <h4 class="enc__h4" style="margin-top:14px">💰 随机奖金</h4>
+          <div class="enc__special-item">
+            <span class="enc__special-icon">💰</span>
+            <div class="enc__special-info">
+              <b>随机奖金</b>
+              <span>随机出现在某个无主地产格（金色发光边框+💰标记）。玩家踩中后先到先得，金额随机（¥1000-5000，整千或整五百），领取前不知道具体金额。领取后奖金立即刷新到另一个随机无主地产格。</span>
+            </div>
+          </div>
           <h4 class="enc__h4" style="margin-top:14px">彩票系统</h4>
           <div class="enc__special-item">
             <span class="enc__special-icon">🎫</span>
@@ -230,7 +238,7 @@ const forkCount = computed(() => TILES.filter((t) => t && !t.removed && t.neighb
           </div>
         </div>
 
-        <!-- 规则 -->
+<!-- 规则 -->
         <div v-else-if="activeTab === 'rules'" class="enc__section enc__rules">
           <h4 class="enc__h4">🎯 胜利条件</h4>
           <p>破产淘汰为主；房主可设回合上限（默认40），到点按总资产排名。</p>
@@ -246,10 +254,10 @@ const forkCount = computed(() => TILES.filter((t) => t && !t.removed && t.neighb
           <h4 class="enc__h4">🏠 地产规则</h4>
           <ul>
             <li>踩无主地弹出购买，放弃不扣钱</li>
-            <li>对手踩到收租 = 地价 × 0.2 × (1+等级)</li>
+            <li>对手踩到收租 = 地价 × 25% × 等级倍率（Lv0=×1 / Lv1=×2.2 / Lv2=×3.8 / Lv3=×5.5）</li>
             <li>商圈集齐→租金 ×1.5</li>
             <li>升级费用 = 地价 × 0.5，封顶3级</li>
-            <li>卖地回收 0.4</li>
+            <li>卖地回收 = (地价 + 升级费×等级) × 0.5（升级投入不烧钱）</li>
           </ul>
 
           <h4 class="enc__h4">🚈 轻轨系统</h4>
@@ -285,6 +293,15 @@ const forkCount = computed(() => TILES.filter((t) => t && !t.removed && t.neighb
             <li>已有神仙时新神仙覆盖旧的</li>
             <li>持续时间到自动离开；送神卡主动送走</li>
             <li>负面神仙：衰神/恶魔/穷神；正面：财神/土地公/天使/崔斯特</li>
+          </ul>
+
+          <h4 class="enc__h4">💰 随机奖金</h4>
+          <ul>
+            <li>随机出现在某个无主地产格（金色发光边框+💰标记）</li>
+            <li>玩家踩中后先到先得，金额随机（¥1000-5000，整千或整五百）</li>
+            <li>领取前不知道具体金额，领取后全员弹窗提示</li>
+            <li>领取后奖金立即刷新到另一个随机无主地产格</li>
+            <li>所有地产都有主人后，奖金消失</li>
           </ul>
 
           <h4 class="enc__h4">🎫 彩票规则</h4>
