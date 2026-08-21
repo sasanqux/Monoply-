@@ -39,6 +39,12 @@ body {
   color: var(--ink);
   font-weight: 700;
   -webkit-font-smoothing: antialiased;
+  margin: 0;
+  padding: 0;
+}
+
+#app {
+  min-height: 100vh;
 }
 
 /* 半调网点背景纹理 */
@@ -357,4 +363,24 @@ body {
 
 .text-danger {
   color: var(--pop-red);
+}
+
+/* ===== 仅手机端：禁止选择文字 / 下拉刷新 ===== */
+@media (max-width: 768px) {
+  * { user-select: none; -webkit-user-select: none; }
+  html, body { overscroll-behavior: none; touch-action: manipulation; }
+}
+
+/* ===== 仅 App（Capacitor）：全屏沉浸式 ===== */
+body.capacitor {
+  overflow: hidden;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+body.capacitor #app {
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
 }

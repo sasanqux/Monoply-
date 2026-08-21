@@ -1,0 +1,13 @@
+services:
+  monopoly:
+    build: .
+    container_name: monopoly-game
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+    restart: unless-stopped
+    # 如果需要持久化房间数据（可选，当前是纯内存）
+    # volumes:
+    #   - ./data:/app/data

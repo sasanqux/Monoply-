@@ -12,6 +12,7 @@ const props = defineProps({
 const emit = defineEmits(['playerClick', 'trade'])
 
 const expanded = ref(null) // 展开的玩家 id
+const logCollapsed = ref(true) // 事件记录折叠状态（默认折叠）
 
 // 金钱滚动动画：追踪每个玩家的显示金额
 const displayMoney = ref({}) // { playerId: 当前显示值 }
@@ -296,10 +297,13 @@ function onPlayer(p) {
     </section>
 
     <section class="side__block card-comic side__block--grow">
-      <h2 class="comic-title comic-title--md">事件记录</h2>
-      <ul ref="logEl" class="log" @scroll="onLogScroll">
+      <h2 class="comic-title comic-title--md collapsible-header" @click="logCollapsed = !logCollapsed">
+        事件记录 <span class="collapsible-arrow">{{ logCollapsed ? '▸' : '▾' }}</span>
+      </h2>
+      <ul v-show="!logCollapsed" ref="logEl" class="log" @scroll="onLogScroll">
         <li v-for="(line, i) in [...state.log].reverse()" :key="i" class="log__line">{{ line }}</li>
       </ul>
+      <p v-show="logCollapsed" class="log__latest">{{ state.log[state.log.length - 1] || '暂无事件' }}</p>
       <!-- 聊天框（联机预留） -->
       <div class="chat">
         <div class="chat__head"><ComicIcon name="chat" :size="14" /> 聊天</div>
@@ -691,6 +695,45 @@ function onPlayer(p) {
 .chat__send:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 折叠面板 */
+.collapsible-header {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.collapsible-arrow {
+  font-size: 14px;
+  opacity: 0.6;
+}
+.log__latest {
+  font-size: 12px;
+  opacity: 0.7;
+  padding: 4px 0;
+  margin: 0;
+}
+
+/* 横屏：右侧面板布局 */
+@media (orientation: landscape) and (max-height: 500px) {
+  .side {
+    gap: 8px;
+    height: 100%;
+  }
+  .side__block {
+    padding: 8px 10px;
+  }
+  .side__block--grow {
+    flex: 1;
+    max-height: none;
+    min-height: 0;
+  }
+  .log {
+    max-height: none;
+    flex: 1;
+  }
 }
 
 </style>

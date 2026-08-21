@@ -1,8 +1,20 @@
 // rooms.js — 房间管理：创建/加入/离开/准备/开始/游戏操作/掉线托管/清理
 // 游戏逻辑统一 import 自 shared/game（与前端共用同一份，消灭双副本漂移）
-import { gameReducer, createInitialState, aiDecide, currentPlayer, PLAYER_COLORS } from '../shared/game/index.js'
+import { gameReducer, createInitialState, aiDecide, currentPlayer, PLAYER_COLORS, getWinnerByElimination } from '../shared/game/index.js'
 
 const rooms = new Map()
+const MAX_ROOMS = 100 // 房间数量上限（防无限制创建耗尽内存）
+
+// 房间只读查询（供 index.js 的 requestState 等使用；Map 本体保持模块私有）
+export function getRoom(roomId) {
+  return rooms.get(roomId) || null
+}
+
+// 房主判定：按玩家 id（稳定标识）而非 socketId（掉线重连后会变）
+function isHost(room, socketId) {
+  const p = room.players.find((pl) => pl.socketId === socketId)
+  return !!p && p.id === room.hostPlayerId
+}
 
 // ===== 设置白名单校验（防恶意 payload 注入负数/字符串/超大值）=====
 function sanitizeSettings(settings = {}) {
@@ -33,16 +45,24 @@ function genRoomId() {
 }
 
 export function createRoom(hostName, settings = {}) {
+  if (rooms.size >= MAX_ROOMS) return null // 服务器繁忙
   const roomId = genRoomId()
   const room = {
     roomId,
     status: 'waiting', // waiting | playing | finished
-    hostId: null,
+    hostId: null, // 房主当前 socketId（仅用于展示兼容；权限判定一律走 hostPlayerId）
+    hostPlayerId: null, // 房主的玩家 id（稳定标识，掉线重连不丢失房主身份）
     settings: sanitizeSettings(settings),
     players: [],
     playerSeq: 0, // 玩家 ID 自增序号（防"退出再加人"ID 碰撞）
     gameState: null,
     chat: [],
+    gameLog: [], // 游戏日志
+    password: null, // 房间密码
+    paused: false, // 是否暂停
+    aiTakeover: false, // AI 托管：默认关闭，仅房主可开启
+    turnTimer: null, // 回合倒计时定时器
+    turnTimeLeft: 30, // 剩余秒数
     createdAt: Date.now(),
     _cleanupTimer: null,
     _aiTimer: null,
@@ -52,20 +72,33 @@ export function createRoom(hostName, settings = {}) {
   return room
 }
 
-export function joinRoom(roomId, playerName, socketId, color) {
+export function joinRoom(roomId, playerName, socketId, color, password, playerId) {
   const room = rooms.get(roomId)
   if (!room) return { error: '房间不存在' }
   const name = sanitizeName(playerName)
 
-  // 对局中断线重连：同名玩家找回原座位（掉线期间由 AI 托管）
+  // 对局中断线重连：优先按 playerId 找回原座位（稳定标识，不依赖昵称可猜），
+  // 没传 playerId 才退回按昵称匹配（兼容旧客户端 / net-smoke 旧用例）
   if (room.status === 'playing') {
-    const dc = room.players.find((p) => p.disconnected && p.name === name)
+    // 重连同样要验密码（否则知道房间码+昵称即可顶替座位）
+    if (room.password && room.password !== password) return { error: '房间密码错误' }
+    let dc = null
+    if (playerId) {
+      dc = room.players.find((p) => p.disconnected && p.id === playerId)
+    }
+    if (!dc) {
+      dc = room.players.find((p) => p.disconnected && p.name === name)
+    }
     if (dc) {
       dc.socketId = socketId
       dc.disconnected = false
       const gp = room.gameState?.players.find((p) => p.id === dc.id)
       if (gp) gp.isAI = false
       room._aiGuard = 0
+      // 如果重连的本来就是房主 → 恢复房主权限（按玩家 id 判定，不受 socketId 变化影响）
+      if (dc.id === room.hostPlayerId) {
+        room.hostId = socketId
+      }
       return { room, playerId: dc.id, rejoined: true }
     }
     return { error: '游戏已开始，只能用掉线前的昵称重连' }
@@ -74,6 +107,8 @@ export function joinRoom(roomId, playerName, socketId, color) {
   if (room.status !== 'waiting') return { error: '游戏已开始，无法加入' }
   if (room.players.length >= room.settings.maxPlayers) return { error: '房间已满' }
   if (room.players.some((p) => p.name === name)) return { error: '名字已被使用' }
+  // 检查房间密码
+  if (room.password && room.password !== password) return { error: '房间密码错误' }
 
   // 检查颜色是否重复
   const usedColors = room.players.map((p) => p.color)
@@ -83,9 +118,9 @@ export function joinRoom(roomId, playerName, socketId, color) {
     finalColor = PLAYER_COLORS.find((c) => !usedColors.includes(c)) || PLAYER_COLORS[0]
   }
 
-  const playerId = 'p' + ++room.playerSeq
+  const newPlayerId = 'p' + ++room.playerSeq
   const player = {
-    id: playerId,
+    id: newPlayerId,
     name,
     socketId,
     isAI: false,
@@ -95,13 +130,14 @@ export function joinRoom(roomId, playerName, socketId, color) {
   }
   room.players.push(player)
 
-  // 第一个加入的是房主
-  if (!room.hostId) {
+  // 第一个加入的是房主（记录稳定玩家 id，掉线重连不丢身份）
+  if (!room.hostPlayerId) {
+    room.hostPlayerId = newPlayerId
     room.hostId = socketId
     player.ready = true
   }
 
-  return { room, playerId }
+  return { room, playerId: newPlayerId }
 }
 
 // 准备/取消准备（非房主玩家）
@@ -109,7 +145,7 @@ export function toggleReady(socketId) {
   const room = findRoomBySocket(socketId)
   if (!room || room.status !== 'waiting') return null
   const player = room.players.find((p) => p.socketId === socketId)
-  if (!player || room.hostId === socketId) return room // 房主恒已准备
+  if (!player || isHost(room, socketId)) return room // 房主恒已准备
   player.ready = !player.ready
   return room
 }
@@ -135,10 +171,11 @@ export function leaveRoom(socketId) {
     }
 
     // 大厅阶段：真正移除
-    const wasHost = room.hostId === socketId
+    const wasHost = room.hostPlayerId === player.id
     room.players.splice(idx, 1)
     if (wasHost && room.players.length > 0) {
-      // 房主转移给下一个玩家
+      // 房主转移给下一个玩家（同步维护稳定 id 与 socketId 两份）
+      room.hostPlayerId = room.players[0].id
       room.hostId = room.players[0].socketId
       room.players[0].ready = true
     }
@@ -162,7 +199,7 @@ export function findRoomBySocket(socketId) {
 export function startGame(socketId) {
   const room = findRoomBySocket(socketId)
   if (!room) return { error: '不在房间' }
-  if (room.hostId !== socketId) return { error: '你不是房主' }
+  if (!isHost(room, socketId)) return { error: '你不是房主' }
   if (room.players.length < 2) return { error: '至少需要 2 名玩家' }
   if (room.players.some((p) => !p.ready)) return { error: '还有玩家未准备' }
 
@@ -273,16 +310,18 @@ function autoStep(room) {
 
 // ===== 掉线托管：轮到掉线玩家时由服务器代打 =====
 // 返回需要执行的 action；null 表示无需托管（都在等真人）
+// 注意：需房主在游戏内开启 AI 托管才生效，否则掉线玩家会卡住
 export function serverNextAction(room) {
   const gs = room.gameState
   if (!gs || gs.status !== 'playing') return null
+  if (!room.aiTakeover) return null // AI 托管未开启 → 不代打
   const isDisconnected = (gp) =>
     !!gp && !!room.players.find((rp) => rp.id === gp.id)?.disconnected
 
-  // 开局掷骰定顺序：轮到掉线玩家也由服务器代掷
+  // 开局掷骰定顺序：轮到掉线玩家（或已出局玩家）也由服务器代掷
   if (gs.phase === 'order' && gs.orderState && !gs.orderState.done) {
     const orderP = gs.players[gs.orderState.index]
-    if (isDisconnected(orderP)) return { type: 'ROLL_ORDER' }
+    if (!orderP || !orderP.alive || isDisconnected(orderP)) return { type: 'ROLL_ORDER' }
     return null
   }
 
@@ -349,3 +388,197 @@ export function removeRoom(roomId) {
 }
 
 export function count() { return rooms.size }
+
+// ===== 新增：游戏菜单功能 =====
+
+// 添加游戏日志
+export function addLog(roomId, message) {
+  const room = rooms.get(roomId)
+  if (!room) return null
+  const msg = { time: Date.now(), message }
+  room.gameLog = room.gameLog || []
+  room.gameLog.push(msg)
+  if (room.gameLog.length > 100) room.gameLog.shift()
+  return msg
+}
+
+// 获取游戏日志
+export function getLog(roomId) {
+  const room = rooms.get(roomId)
+  return room?.gameLog || []
+}
+
+// ===== 玩家出局清算（投降/被踢共用）=====
+// 关键约束：不从 gameState.players 数组删除元素（避免 turnIndex/ap.turn 索引移位），
+// 只标记 alive=false，让既有回合推进/拍卖/胜负逻辑自然跳过。
+function checkEliminationWinner(gs) {
+  const alive = gs.players.filter((p) => p.alive)
+  if (alive.length === 1) {
+    gs.status = 'finished'
+    gs.winnerId = alive[0].id
+    gs.log.push(`🏆 ${alive[0].name} 成为最后赢家！`)
+  } else if (alive.length === 0) {
+    gs.status = 'finished'
+    gs.winnerId = null
+    gs.log.push('🏳️ 已无存活玩家，对局结束')
+  }
+}
+
+// 手动把回合推进到下一个存活玩家（玩家在走格/分岔/拍卖等中途出局时用；
+// 不走 nextTurn —— 那套带回合结算副作用，出局路径不该触发）
+function advanceTurnPastDead(gs) {
+  const prev = gs.turnIndex
+  let next = (prev + 1) % gs.players.length
+  let guard = 0
+  while (!gs.players[next]?.alive && guard++ <= gs.players.length) {
+    next = (next + 1) % gs.players.length
+  }
+  if (!gs.players[next]?.alive) return // 没有存活玩家了（胜负判定兜底）
+  if (next <= prev) gs.round += 1 // 绕圈 → 回合数 +1（与 nextTurn 口径一致）
+  gs.turnIndex = next
+  gs.dice = null
+  gs.stepsRemaining = 0
+  gs.pending = null
+  gs.phase = 'roll'
+  gs.shopShownTurn = false
+  gs.lotteryBoughtTurn = false
+  const np = gs.players[next]
+  np.cardUsed = false
+  np.firstTurn = false
+  for (const p of gs.players) {
+    if (p.upgradableTiles) p.upgradableTiles = []
+  }
+}
+
+function eliminatePlayer(room, playerId, reason) {
+  const gs = room.gameState
+  if (!gs || gs.status !== 'playing') return
+  const gp = gs.players.find((p) => p.id === playerId)
+  if (!gp || !gp.alive) return
+
+  // 资产清算（与破产同口径）
+  gp.alive = false
+  gp.bankrupt = true
+  gp.properties = []
+  gp.levels = {}
+  gp.mortgaged = {}
+  gp.stockHoldings = {}
+  gp.loan = 0
+  gp.loanDue = 0
+  gp.loanRepay = 0
+  gp.skipTurns = 0
+  gp.jailLeft = 0
+  gs.log.push(`${gp.name} ${reason}`)
+  gs.log.push(`💸 ${gp.name} 出局！`)
+
+  // 涉及出局者的待处理交易 → 取消
+  if (gs.pending?.kind === 'trade' && (gs.pending.from === playerId || gs.pending.to === playerId)) {
+    gs.log.push(`❌ 交易提案因 ${gp.name} 出局而取消`)
+    gs.pending = null
+  }
+  // 拍卖中 → 流拍（出价轮转/计数依赖存活名单，简单起见直接取消）
+  if (gs.pending?.kind === 'auction') {
+    gs.log.push(`🔨 拍卖因 ${gp.name} 出局而流拍`)
+    gs.pending = null
+    gs.phase = 'roll'
+  }
+
+  // 开局定序阶段：不推进回合（出局者剩余的掷骰由托管调度自动代掷）
+  if (gs.phase === 'order' && gs.orderState && !gs.orderState.done) {
+    checkEliminationWinner(gs)
+    return
+  }
+
+  // 出局者正是当前回合玩家 → 推进回合
+  if (gs.players[gs.turnIndex]?.id === playerId) {
+    if (gs.phase === 'landed') {
+      gs.pending = null
+      // 走标准 END_TURN（nextTurn 内含回合结算与胜负判定）
+      room.gameState = gameReducer(gs, { type: 'END_TURN' })
+      return
+    }
+    advanceTurnPastDead(gs) // 走格/分岔/拍卖中途出局
+  }
+  checkEliminationWinner(gs)
+}
+
+// 认输
+export function surrender(socketId) {
+  const room = findRoomBySocket(socketId)
+  if (!room || !room.gameState) return { error: '游戏未开始' }
+  const player = room.players.find(p => p.socketId === socketId)
+  if (!player) return { error: '不在房间' }
+  const gp = room.gameState.players.find(p => p.id === player.id)
+  if (!gp?.alive) return { error: '你已出局，无需投降' }
+
+  addLog(room.roomId, `${player.name} 投降了`)
+  // 走完整出局清算：置 alive=false、清资产、处理 pending、推进回合、判胜负
+  eliminatePlayer(room, player.id, '投降认输')
+  return { ok: true, room, log: getLog(room.roomId) }
+}
+
+// 暂停/继续
+export function togglePause(socketId) {
+  const room = findRoomBySocket(socketId)
+  if (!room) return { error: '不在房间' }
+  if (!isHost(room, socketId)) return { error: '只有房主可以暂停' }
+  room.paused = !room.paused
+  addLog(room.roomId, room.paused ? '游戏已暂停' : '游戏继续')
+  return { ok: true, room, paused: room.paused }
+}
+
+// AI 托管开关（仅房主）
+export function toggleAITakeover(socketId) {
+  const room = findRoomBySocket(socketId)
+  if (!room) return { error: '不在房间' }
+  if (!isHost(room, socketId)) return { error: '只有房主可以切换 AI 托管' }
+  room.aiTakeover = !room.aiTakeover
+  addLog(room.roomId, room.aiTakeover ? 'AI 托管已开启' : 'AI 托管已关闭')
+  return { ok: true, room, aiTakeover: room.aiTakeover }
+}
+
+// 踢人
+export function kickPlayer(socketId, targetId) {
+  const room = findRoomBySocket(socketId)
+  if (!room) return { error: '不在房间' }
+  if (!isHost(room, socketId)) return { error: '只有房主可以踢人' }
+  const kicker = room.players.find(p => p.socketId === socketId)
+  if (kicker && kicker.id === targetId) return { error: '不能踢自己' }
+
+  const target = room.players.find(p => p.id === targetId)
+  if (!target) return { error: '玩家不存在' }
+
+  const targetSocketId = target.socketId // 移除前留存，供 index.js 通知被踢客户端
+  addLog(room.roomId, `${target.name} 被踢出房间`)
+
+  if (room.status === 'playing') {
+    // 对局中踢人 = 判出局（不从 gameState.players 删元素，避免索引移位卡死对局）
+    eliminatePlayer(room, targetId, '被房主移出房间')
+  }
+
+  // 从房间名单移除（不可再重连找回座位）
+  room.players = room.players.filter(p => p.id !== targetId)
+
+  // 防御：万一被踢的是房主（正常路径踢不到），转移房主
+  if (room.hostPlayerId === targetId && room.players.length > 0) {
+    room.hostPlayerId = room.players[0].id
+    room.hostId = room.players[0].socketId
+    room.players[0].ready = true
+  }
+  return { ok: true, room, targetSocketId }
+}
+
+// 设置房间密码
+export function setPassword(socketId, password) {
+  const room = findRoomBySocket(socketId)
+  if (!room) return { error: '不在房间' }
+  if (!isHost(room, socketId)) return { error: '只有房主可以设置密码' }
+  room.password = password || null
+  return { ok: true, room }
+}
+
+// 获取房间密码
+export function getPassword(roomId) {
+  const room = rooms.get(roomId)
+  return room?.password || null
+}

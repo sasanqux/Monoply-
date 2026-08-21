@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import SetupPanel from './components/SetupPanel.vue'
 import Board from './components/Board.vue'
 import ActionPanel from './components/ActionPanel.vue'
@@ -14,14 +14,13 @@ import ComicIcon from './components/ComicIcon.vue'
 import DebugPanel from './components/DebugPanel.vue'
 import TradeModal from './components/TradeModal.vue'
 import { createInitialState, gameReducer, aiDecide, currentPlayer, TILES, isPropertyTile, cardTargetKind, VEHICLES, CARDS, STOCKS, GODS, loanLimit, totalAssets } from './game/index.js'
-import { connect, disconnect } from './net/socket.js'
+import { connect, disconnect, getSocket } from './net/socket.js'
 import Home from './components/Home.vue'
 import ModeSelect from './components/ModeSelect.vue'
 import Lobby from './components/Lobby.vue'
 
 const AI_NAMES = ['闷墩', '宝器', '莽娃', '瓜娃', '耙耳朵', '胎神', '棒棒']
 
-let socket = null
 const view = ref('home') // home | mode | setup | lobby | game
 const netMode = ref(false)
 const myPlayerId = ref(null)
@@ -34,6 +33,114 @@ const animating = ref(false) // 掷骰/走格动画播放中（期间暂不显�
 const animatingPids = ref([]) // 当前正在走动的玩家 id（这些玩家的棋子要隐藏，其他玩家正常显示）
 let aiTimer = null
 let animTimer = null
+
+// ===== 新增：联机功能状态 =====
+const currentRoomId = ref(null) // 当前房间号
+const isHost = ref(false) // 是否是房主
+const paused = ref(false) // 游戏是否暂停
+const aiTakeover = ref(false) // AI 托管是否开启
+const turnTimeLeft = ref(30) // 回合倒计时
+const lobbyPlayers = ref([]) // 玩家列表（供踢人用）
+const gameLog = ref([]) // 游戏日志
+const playerName = ref('') // 玩家昵称（用于断线重连）
+const playerColor = ref('') // 玩家颜色（用于断线重连）
+
+// localStorage 存房间信息（用于断线重连）
+const STORAGE_KEY = 'monopoly_game'
+function saveGameInfo() {
+  if (state.value && myPlayerId.value && currentRoomId.value) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      roomId: currentRoomId.value,
+      playerName: playerName.value,
+      color: playerColor.value,
+      playerId: myPlayerId.value,
+      savedAt: Date.now(),
+    }))
+  }
+}
+function loadGameInfo() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+    const info = JSON.parse(raw)
+    if (Date.now() - info.savedAt > 2 * 60 * 60 * 1000) {
+      localStorage.removeItem(STORAGE_KEY)
+      return null
+    }
+    return info
+  } catch {
+    return null
+  }
+}
+function clearGameInfo() {
+  localStorage.removeItem(STORAGE_KEY)
+}
+
+// 页面加载时检查是否有进行中的游戏，自动重连（只尝试一次，后续重连靠 onNetReconnect）
+onMounted(() => {
+  const info = loadGameInfo()
+  if (!info) return
+  const s = getSocket() || connect()
+  const tryRejoin = () => {
+    doRejoin(s, info)
+    s.off('connect', tryRejoin) // 首次重连后摘掉，避免每次重连都重复触发 onEnterNetGame
+  }
+  if (s.connected) {
+    tryRejoin()
+  } else {
+    s.on('connect', tryRejoin)
+  }
+})
+
+function doRejoin(s, info) {
+  s.emit('joinRoom', {
+    roomId: info.roomId,
+    playerName: info.playerName,
+    color: info.color,
+    playerId: info.playerId, // 优先按 playerId 匹配座位，不依赖可猜的昵称
+  }, (res) => {
+    if (res?.ok && res.rejoined) {
+      myPlayerId.value = res.playerId
+      currentRoomId.value = info.roomId
+      view.value = 'game'
+      onEnterNetGame({ playerName: info.playerName, color: info.color, roomId: info.roomId })
+    } else {
+      clearGameInfo()
+    }
+  })
+}
+
+// 首页"返回游戏"按钮：用保存的信息重新加入
+function onRejoinGame(info) {
+  // 切换到游戏视图并等待 socket 连接后加入
+  netMode.value = true
+  view.value = 'game'
+  const s = getSocket() || connect()
+  const tryRejoin = () => {
+    doRejoin(s, info)
+    s.off('connect', tryRejoin)
+  }
+  if (s.connected) {
+    tryRejoin()
+  } else {
+    s.on('connect', tryRejoin)
+  }
+}
+
+// 联机中途断线重连：socket 重连后会拿到新 socketId，服务端已把旧座位标记为掉线托管；
+// 不重发 joinRoom 玩家会"幽灵冻结"（收不到任何状态）。这里在每次重连后自动找回座位。
+function onNetReconnect() {
+  const s = getSocket()
+  if (!s) return
+  if (currentRoomId.value && myPlayerId.value) {
+    s.emit('joinRoom', {
+      roomId: currentRoomId.value,
+      playerName: playerName.value,
+      color: playerColor.value,
+      playerId: myPlayerId.value,
+    })
+  }
+}
 
 // ===== 可拿取骰子 =====
 const boardEl = ref(null)          // 棋盘 DOM（DiceThrow 算落点）
@@ -118,45 +225,119 @@ function startGame(opts) {
 
 // 确保 socket 已连接（不重复 connect）
 function ensureSocket() {
-  if (!socket) {
-    socket = connect()
-  }
-  return socket
+  return connect()
 }
 
 // 联进入游戏（gameStart 只带 roomId；对局状态等第一条 gameState 广播）
-function onEnterNetGame() {
+function onEnterNetGame(data) {
   netMode.value = true
   view.value = 'game'
+  // 保存玩家信息用于断线重连
+  if (data?.playerName) playerName.value = data.playerName
+  if (data?.color) playerColor.value = data.color
+  currentRoomId.value = data?.roomId || currentRoomId.value
+  const s = getSocket()
+  if (!s) { console.error('[onEnterNetGame] no socket!'); return }
   // 清理旧监听避免重复
-  socket.off('gameState')
-  socket.on('gameState', ({ state: gs, myPlayerId: pid }) => {
+  s.off('gameState')
+  s.off('pauseUpdate')
+  s.off('timerUpdate')
+  s.off('logUpdate')
+  s.off('kicked')
+  s.off('roomUpdate')
+  s.off('connect', onNetReconnect)
+  s.on('gameState', ({ state: gs, myPlayerId: pid, isHost: host }) => {
     if (pid) myPlayerId.value = pid
+    if (host !== undefined) isHost.value = host // 联机中房主菜单（暂停/踢人/设密码）才显示
+    console.log('[gameState] received, diceThrowing was', diceThrowing.value)
     applyNetState(gs)
+    // 保存游戏信息用于断线重连
+    saveGameInfo()
   })
+  // 暂停状态同步
+  s.on('pauseUpdate', ({ paused: p }) => {
+    paused.value = p
+  })
+  // AI 托管状态同步
+  s.on('aiTakeoverUpdate', ({ aiTakeover: ai }) => {
+    aiTakeover.value = ai
+  })
+  // 回合倒计时同步
+  s.on('timerUpdate', ({ time }) => {
+    turnTimeLeft.value = time
+  })
+  // 游戏日志同步
+  s.on('logUpdate', (logs) => {
+    gameLog.value = logs
+  })
+  // 被房主踢出：弹提示并退回选模式页
+  s.on('kicked', () => {
+    alert('你已被房主移出房间')
+    netMode.value = false
+    currentRoomId.value = null
+    state.value = null
+    isHost.value = false
+    view.value = 'mode'
+  })
+  // 延迟检测响应
+  s.on('ping_check', () => {
+    s.emit('pong_check')
+  })
+  // 房间更新（玩家列表 + isHost 字段，供踢人/显示用）
+  s.on('roomUpdate', (r) => {
+    if (r?.players) {
+      lobbyPlayers.value = r.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        isHost: p.isHost,
+      }))
+      // 更新自己的房主状态
+      const me = r.players.find(p => p.id === myPlayerId.value)
+      if (me) isHost.value = !!me.isHost
+    }
+  })
+  // 中途断线重连后自动找回座位（防幽灵冻结）
+  s.on('connect', onNetReconnect)
 }
 
 // 联机：应用服务器广播的 state，并用 walkPath 差量驱动走格动画（与单机同一套动画逻辑）
 function applyNetState(gs) {
-  const prevMap = lastWalkPaths.value
-  state.value = gs
-  const { paths, nextMap } = buildMovePaths(gs, prevMap)
-  lastWalkPaths.value = nextMap
-  if (paths.length) {
-    lastMove.value = { paths, n: (lastMove.value?.n ?? 0) + 1 }
-    animating.value = true
-    animatingPids.value = paths.map((p) => p.pid)
-    clearTimeout(animTimer)
-    const steps = Math.max(...paths.map((p) => p.path.length - 1))
-    animTimer = setTimeout(() => { animating.value = false; animatingPids.value = [] }, steps * 400 + 500)
+  console.log('[applyNetState] received', gs ? 'state ok' : 'STATE IS NULL/UNDEFINED!', { players: gs?.players?.length })
+  // 无论成功与否，先清除"掷骰中"锁——这是修复掷骰卡住的核心
+  diceThrowing.value = false
+  animating.value = false
+  animatingPids.value = []
+  clearTimeout(animTimer)
+  // null/undefined state 不做任何处理（服务端异常或掉线中）
+  if (!gs) {
+    console.warn('[applyNetState] got null state, skipping')
+    return
   }
-  // 落地产生购买/轻轨等 pending 时，立即停止动画锁让按钮可用（与单机 dispatch 一致）
-  if (gs.pending?.kind === 'buy' || gs.pending?.kind === 'metro') {
-    clearTimeout(animTimer)
+  try {
+    const prevMap = lastWalkPaths.value
+    state.value = gs
+    const { paths, nextMap } = buildMovePaths(gs, prevMap)
+    lastWalkPaths.value = nextMap
+    if (paths.length) {
+      lastMove.value = { paths, n: (lastMove.value?.n ?? 0) + 1 }
+      animating.value = true
+      animatingPids.value = paths.map((p) => p.pid)
+      const steps = Math.max(...paths.map((p) => p.path.length - 1))
+      animTimer = setTimeout(() => { animating.value = false; animatingPids.value = [] }, steps * 400 + 500)
+    }
+    // 落地产生购买/轻轨等 pending 时，立即停止动画锁让按钮可用（与单机 dispatch 一致）
+    if (gs.pending?.kind === 'buy' || gs.pending?.kind === 'metro') {
+      clearTimeout(animTimer)
+      animating.value = false
+      animatingPids.value = []
+    }
+    scheduleAI()
+  } catch (e) {
+    console.error('[applyNetState] ERROR:', e)
+    // 出错时也确保清除动画锁
     animating.value = false
     animatingPids.value = []
   }
-  scheduleAI()
 }
 
 // 已动画过的 walkPath 快照（按玩家 id）；用于差量计算"本段该走的格子"
@@ -172,6 +353,10 @@ function snapshotWalkPaths(state) {
 function buildMovePaths(newState, prevMap) {
   const paths = []
   const nextMap = {}
+  if (!newState || !newState.players) {
+    console.error('[buildMovePaths] invalid state', newState)
+    return { paths, nextMap }
+  }
   for (const pl of newState.players) {
     const wp = pl.walkPath ? [...pl.walkPath] : [pl.pos]
     nextMap[pl.id] = wp
@@ -217,7 +402,20 @@ function dispatch(action) {
   if (!state.value || state.value.status !== 'playing') return
   // 联机模式：发给服务器，等广播回来再更新
   if (netMode.value) {
-    socket.emit('action', action)
+    const s = getSocket()
+    if (!s) { console.error('[dispatch] no socket!'); return }
+    console.log('[dispatch] emitting action', action.type)
+    s.emit('action', action, (res) => {
+      console.log('[dispatch] action response', action.type, res)
+      if (res?.error) {
+        console.warn('[dispatch] server rejected', action.type, res.error)
+        // 服务器拒绝操作 → 清除动画/掷骰锁，避免 UI 卡死
+        diceThrowing.value = false
+        animating.value = false
+        animatingPids.value = []
+        clearTimeout(animTimer)
+      }
+    })
     return
   }
   // 单机模式：本地算
@@ -255,11 +453,58 @@ function dispatch(action) {
   scheduleAI()
 }
 
+// ===== 新增：游戏菜单功能 =====
+function getSocketSafe() {
+  return getSocket()
+}
+
+function onSurrender() {
+  const s = getSocketSafe()
+  if (!s || !currentRoomId.value) return
+  s.emit('surrender', { roomId: currentRoomId.value }, (res) => {
+    if (res?.error) alert(res.error)
+  })
+}
+
+function onTogglePause() {
+  const s = getSocketSafe()
+  if (!s || !currentRoomId.value) return
+  s.emit('togglePause', { roomId: currentRoomId.value }, (res) => {
+    if (res?.error) alert(res.error)
+  })
+}
+
+function onKickPlayer(targetId) {
+  const s = getSocketSafe()
+  if (!s || !currentRoomId.value) return
+  s.emit('kick', { roomId: currentRoomId.value, targetId }, (res) => {
+    if (res?.error) alert(res.error)
+  })
+}
+
+function onToggleAITakeover() {
+  const s = getSocketSafe()
+  if (!s || !currentRoomId.value) return
+  s.emit('toggleAITakeover', { roomId: currentRoomId.value }, (res) => {
+    if (res?.error) alert(res.error)
+  })
+}
+
+function onSetPassword(password) {
+  const s = getSocketSafe()
+  if (!s || !currentRoomId.value) return
+  s.emit('setPassword', { roomId: currentRoomId.value, password }, (res) => {
+    if (res?.error) alert(res.error)
+    else if (res?.ok) alert(password ? '密码设置成功' : '密码已取消')
+  })
+}
+
 // ===== 走格动画：前端逐格推进（不隐藏真实棋子，让它逐格跳） =====
 let stepTimer = null
 
 // 松手瞬间：掷骰子，只算点数不实际走
 function onDiceThrow() {
+  console.log('[onDiceThrow] start', { status: state.value?.status, diceRolled: diceRolled.value, phase: state.value?.phase })
   if (!state.value || state.value.status !== 'playing') return
   if (diceRolled.value) return
   const cur = currentPlayer(state.value)
@@ -267,8 +512,21 @@ function onDiceThrow() {
   diceRolled.value = true
   diceThrowing.value = true
   animating.value = true
+  console.log('[onDiceThrow] dispatching ROLL_DICE')
+  // 超时保护：5 秒内如果服务器没回广播，自动清除掷骰锁（防卡死）
+  clearTimeout(_diceTimeout)
+  _diceTimeout = setTimeout(() => {
+    if (diceThrowing.value) {
+      console.warn('[onDiceThrow] timeout: server did not respond in 5s, resetting diceThrowing')
+      diceThrowing.value = false
+      animating.value = false
+      animatingPids.value = []
+    }
+  }, 5000)
   dispatch({ type: 'ROLL_DICE' })
 }
+
+let _diceTimeout = null
 
 // 骰子定格后：单机开始逐格推进；联机由服务器一次算完整路径，动画由 gameState 广播驱动
 function onDiceSettle() {
@@ -770,7 +1028,7 @@ function onStockSell(payload) {
     </header>
 
     <!-- 首页 -->
-    <Home v-if="view === 'home'" @start="view = 'mode'" />
+    <Home v-if="view === 'home'" @start="view = 'mode'" @rejoin="onRejoinGame" />
 
     <!-- 选模式 -->
     <ModeSelect
@@ -835,7 +1093,27 @@ function onStockSell(payload) {
               />
             </div>
           </div>
-          <ActionPanel ref="actionPanelEl" :state="state" :current="cur" :is-my-turn="isMyTurn" :animating="animating" @dispatch="dispatch" @metro="startMetro" />
+          <ActionPanel
+            ref="actionPanelEl"
+            :state="state"
+            :current="cur"
+            :is-my-turn="isMyTurn"
+            :animating="animating"
+            :room-id="currentRoomId"
+            :is-host="isHost"
+            :paused="paused"
+            :ai-takeover="aiTakeover"
+            :turn-time-left="turnTimeLeft"
+            :players="lobbyPlayers"
+            :game-log="gameLog"
+            @dispatch="dispatch"
+            @metro="startMetro"
+            @surrender="onSurrender"
+            @pause="onTogglePause"
+            @kick="onKickPlayer"
+            @set-password="onSetPassword"
+            @toggle-a-i-takeover="onToggleAITakeover"
+          />
         </main>
 
         <SidePanel :state="state" :current="cur" :selectable-players="selectablePlayers" @player-click="onPlayerClick" @trade="openTrade" />
@@ -1211,9 +1489,9 @@ function onStockSell(payload) {
         </div>
       </div>
 
-      <!-- 调试台（右下角悬浮；联机模式禁用——服务器也会拒绝 DEBUG_*） -->
+      <!-- 调试台：App 端隐藏，仅开发用 -->
       <DebugPanel
-        v-if="!netMode"
+        v-if="false"
         :state="state"
         :current-id="cur?.id"
         :teleport-on="!!debugTeleport"
@@ -1940,5 +2218,55 @@ function onStockSell(payload) {
   .bags__turn-player {
     font-size: 12px;
   }
+}
+
+/* ===== 手机端竖屏适配 ===== */
+@media (max-width: 768px) {
+  .app__game {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .app__head h1 { font-size: 20px; }
+
+  /* 棋盘：宽度填满，高度自适应 */
+  .board-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    justify-content: center;
+  }
+  :deep(.board) {
+    width: 100% !important;
+    max-width: 500px !important;
+    height: auto !important;
+    aspect-ratio: 100 / 85;
+  }
+
+  /* 格子：去掉价格/积分（太占空间），放大地名 */
+  :deep(.tile__price),
+  :deep(.tile__points) { display: none !important; }
+  :deep(.tile__name) { font-size: 1.5cqw !important; }
+
+  /* 右侧面板堆叠在棋盘下方 */
+  .app__game > aside { width: 100%; }
+  :deep(.side) { flex-direction: column; gap: 6px; }
+  :deep(.side__block) { padding: 8px 10px; }
+
+  /* 底部菜单栏：纵向堆叠，按钮加大 */
+  .bags { flex-wrap: wrap; justify-content: center; gap: 6px; }
+  .bags__btns { flex-wrap: wrap; justify-content: center; }
+
+  /* 按钮加大触摸区域 */
+  .btn-comic { min-height: 44px; padding: 10px 16px; }
+  .btn-comic--sm { min-height: 36px; padding: 6px 12px; }
+
+  /* 禁止选择文字 / 下拉刷新 */
+  * { user-select: none; -webkit-user-select: none; }
+  html, body { overscroll-behavior: none; }
+}
+
+@media (max-width: 480px) {
+  .bags__chip { font-size: 10px; padding: 2px 6px; }
+  .bags__round-badge { font-size: 11px; padding: 2px 8px; }
 }
 </style>

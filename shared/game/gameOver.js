@@ -2,7 +2,8 @@
 import { totalAssets } from './property.js'
 import { TILES, SELL_RATIO } from './board.js'
 
-// 自动卖地自救：从等级最高的地开始卖，直到现金为正；仍不足则破产
+// 自动卖地自救：先卖低等级地（保留已投入升级资金的高等级地，卖价不区分等级），
+// 直到现金为正；仍不足则破产。抵押地不参与卖地（抵押地直接归银行）
 export function checkBankrupt(state, player) {
   if (!player.alive || player.money >= 0) return
 

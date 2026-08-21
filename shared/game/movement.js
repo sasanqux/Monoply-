@@ -3,10 +3,6 @@
 import { TILES, isMetro, VEHICLES } from './board.js'
 import { LOTTERY_TILES } from './lottery.js'
 
-export function rollDice() {
-  return [1 + Math.floor(Math.random() * 6)]
-}
-
 // 按载具生成骰子数组
 export function rollForPlayer(player) {
   const count = VEHICLES[player.vehicle]?.dice ?? 1

@@ -192,7 +192,8 @@ export function tryTriggerLotteryDeferred(state) {
   const tileId = state._lotteryTile
   state.pending = { kind: 'lottery', tileId }
   state._lotteryTile = null
-  const p = state.players.find((pl) => pl.alive && pl.pos === tileId) || state.players[state.turnIndex]
-  state.log.push(`🎫 ${p.name} 路过彩票站（${TILES[tileId].name}），可以购买彩票！`)
+  // 弹窗对象是当前回合玩家（路过彩票站的人），不能按"谁站在彩票站上"找（可能撞上别的玩家）
+  const p = state.players[state.turnIndex]
+  state.log.push(`🎫 ${p?.name ?? '玩家'} 路过彩票站（${TILES[tileId].name}），可以购买彩票！`)
   return true
 }

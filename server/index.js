@@ -9,10 +9,26 @@ import {
   createRoom, joinRoom, leaveRoom, findRoomBySocket,
   startGame, handleAction, addChat, count,
   toggleReady, removeRoom, serverNextAction, applyServerAction,
+  addLog, getLog, surrender, togglePause, toggleAITakeover, kickPlayer, setPassword, getPassword,
+  getRoom,
 } from './rooms.js';
+import { aiDecide, currentPlayer } from '../shared/game/index.js';
+
+// ===== CORS 收紧 =====
+// 生产环境（NODE_ENV=production）只允许 CORS_ORIGIN 配置的源跨域；
+// 没配则拒绝所有跨域（前后端同源部署不受影响——同源请求不触发 CORS）。
+// 开发环境全开，方便 vite dev server (5173) 连后端 (8080)。
+// 多个源用逗号分隔：CORS_ORIGIN=https://a.com,https://b.com
+const allowedOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()).filter(Boolean)
+  : null
+const corsOrigin = process.env.NODE_ENV === 'production'
+  ? (allowedOrigins && allowedOrigins.length > 0 ? allowedOrigins : false)
+  : true
+const corsOptions = corsOrigin === true ? undefined : { origin: corsOrigin }
 
 const app = express();
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // 服务 dist/ 静态文件
@@ -24,10 +40,38 @@ app.get('/health', (req, res) => res.json({ ok: true, rooms: count() }));
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-  cors: { origin: '*' },
+  cors: { origin: corsOrigin },
+  maxHttpBufferSize: 1e5, // 限制单次 payload 100KB（防超大包；正常 action 远小于此）
   pingInterval: 10000,
   pingTimeout: 5000,
 });
+
+// ===== 简单限流（per-socket 令牌桶，无第三方依赖）=====
+// 每个 socket 一个桶；令牌按时间线性恢复；超限返回 false。
+// WeakMap 以 socket 为 key，断开连接后自动 GC，不泄漏。
+const limitBuckets = new WeakMap()
+function rateLimit(socket, { max, windowMs }) {
+  const now = Date.now()
+  let b = limitBuckets.get(socket)
+  if (!b) {
+    b = { tokens: max, last: now }
+    limitBuckets.set(socket, b)
+  }
+  const elapsed = now - b.last
+  b.tokens = Math.min(max, b.tokens + (elapsed / windowMs) * max)
+  b.last = now
+  if (b.tokens < 1) return false
+  b.tokens -= 1
+  return true
+}
+
+// 各事件限流参数（要调改这里即可）
+const LIMITS = {
+  action: { max: 50, windowMs: 3000 },     // 突发 50、每秒回 ~17（真人远碰不到；挡 50+/秒 脚本洪水）
+  chat: { max: 5, windowMs: 6000 },        // 约 1 秒 1 条聊天（突发 5 条）
+  joinRoom: { max: 10, windowMs: 10000 },  // 10 秒 10 次尝试（防房间码/密码爆破）
+  createRoom: { max: 3, windowMs: 60000 }, // 60 秒 3 个房间（防刷房占满）
+}
 
 // 大厅视角的玩家列表（不含 socketId 等内部字段）
 function lobbyPlayers(room) {
@@ -37,7 +81,7 @@ function lobbyPlayers(room) {
     color: pl.color,
     ready: pl.ready,
     disconnected: !!pl.disconnected,
-    isHost: pl.socketId === room.hostId,
+    isHost: pl.id === room.hostPlayerId,
   }));
 }
 
@@ -48,7 +92,6 @@ function broadcastRoom(room) {
     io.to(p.socketId).emit('roomUpdate', {
       roomId: room.roomId,
       status: room.status,
-      hostId: room.hostId,
       settings: room.settings,
       players: lobbyPlayers(room),
       gameState: null, // 大厅不带对局状态
@@ -92,7 +135,77 @@ function emitGameStateTo(room, player) {
     state: stateFor(room, player),
     currentPlayerId: gs?.players[gs.turnIndex]?.id ?? null,
     myPlayerId: player.id,
+    isHost: player.id === room.hostPlayerId, // 前端据此显示房主菜单（暂停/踢人/设密码）
   });
+}
+
+// 超时代打：覆盖所有 phase，找出"该行动的人"并替他走一步
+// 关键：拍卖出价阶段该动的是 pending.turn 指向的出价者，不是 currentPlayer，
+// 旧逻辑只对 currentPlayer 调 aiDecide 会在拍卖挂机时返回 null → 永久卡死
+function timeoutAction(room) {
+  const gs = room.gameState
+  if (!gs || gs.status !== 'playing') return null
+  // 开局定序：替 os.index 玩家掷骰（不管掉线与否）
+  if (gs.phase === 'order' && gs.orderState && !gs.orderState.done) {
+    const orderP = gs.players[gs.orderState.index]
+    if (!orderP) return null
+    return { type: 'ROLL_ORDER' }
+  }
+  // 交易 pending：对方超时未响应 → 拒绝（防止发起方回合被无限占用）
+  if (gs.pending?.kind === 'trade') {
+    return { type: 'TRADE_REJECT' }
+  }
+  // 拍卖
+  if (gs.phase === 'auction' && gs.pending?.kind === 'auction') {
+    const ap = gs.pending
+    if (ap.roundStep === 1) return { type: 'AUCTION_REVEAL' } // 揭晓阶段卡住 → 代触发
+    const bidder = gs.players[ap.turn]
+    if (!bidder || !bidder.alive) return null
+    // 超时代出 0（放弃）：不替玩家花冤枉钱
+    return { type: 'AUCTION_BID', amount: 0 }
+  }
+  // 分岔：替当前玩家随机选一条
+  if (gs.phase === 'fork' && gs.pending?.kind === 'fork') {
+    const opts = gs.pending.options.length ? gs.pending.options : [gs.pending.chosen]
+    return { type: 'CHOOSE_FORK', tileId: opts[Math.floor(Math.random() * opts.length)] }
+  }
+  // 其余：当前玩家走 AI 决策
+  const cp = currentPlayer(gs)
+  if (!cp) return null
+  return aiDecide(gs, cp.id)
+}
+
+// 回合倒计时
+function startTurnTimer(room) {
+  clearInterval(room.turnTimer)
+  room.turnTimeLeft = 30
+  room.turnTimer = setInterval(() => {
+    try {
+      if (room.paused) return
+      // 对局已结束/房间已清 → 停表（防结束后继续倒计时并触发代打）
+      if (!room.gameState || room.gameState.status !== 'playing') {
+        clearInterval(room.turnTimer)
+        return
+      }
+      room.turnTimeLeft--
+      io.to(room.roomId).emit('timerUpdate', { time: room.turnTimeLeft })
+      if (room.turnTimeLeft <= 0) {
+        clearInterval(room.turnTimer)
+        // 超时代打：统一走 timeoutAction（覆盖拍卖/交易/分岔/定序等所有 phase），
+        // 避免拍卖挂机时 aiDecide(currentPlayer) 返回 null 导致全桌永久卡死
+        const action = timeoutAction(room)
+        if (action) {
+          applyServerAction(room, action)
+          addLog(room.roomId, '⏰ 超时未操作，系统代打')
+          broadcastGameState(room)
+        }
+      }
+    } catch (e) {
+      // 定时器异常绝不能击穿进程（历史上这里因缺 import 直接崩服）
+      console.error('[turnTimer] error:', e)
+      clearInterval(room.turnTimer)
+    }
+  }, 1000)
 }
 
 // 广播游戏状态（全员视角各一份）+ 结束清理 + 掉线托管调度
@@ -101,12 +214,21 @@ function broadcastGameState(room) {
     emitGameStateTo(room, p);
   }
 
+  // 发送日志更新
+  io.to(room.roomId).emit('logUpdate', room.gameLog || [])
+
   if (room.gameState?.status === 'finished' && !room._cleanupTimer) {
+    clearInterval(room.turnTimer) // 对局结束立即停表，不等 60s 后的房间清理
     const roomId = room.roomId;
     room._cleanupTimer = setTimeout(() => {
-      removeRoom(roomId); // 清定时器 + 出 Map（不直接摸模块私有 rooms）
+      removeRoom(roomId); // 清定时器 + 清 Map（不直接摸模块私有 rooms）
       console.log(`[cleanupRoom] ${roomId} (game finished)`);
     }, 60000);
+  }
+
+  // 启动回合倒计时
+  if (room.gameState?.status === 'playing' && !room.paused) {
+    startTurnTimer(room)
   }
 
   scheduleServerAI(room);
@@ -115,6 +237,7 @@ function broadcastGameState(room) {
 // ===== 掉线托管调度：轮到掉线玩家时服务器代打，直到回到真人回合 =====
 function scheduleServerAI(room) {
   if (!room?.gameState || room.gameState.status !== 'playing') return;
+  if (room.paused) return; // 暂停期间不托管（否则暂停形同虚设）
   const action = serverNextAction(room);
   if (!action) return;
   // 防死循环：连续托管动作超限即停（正常对局一轮最多几十个动作）
@@ -126,6 +249,7 @@ function scheduleServerAI(room) {
   room._aiTimer = setTimeout(() => {
     try {
       if (!room.gameState || room.gameState.status !== 'playing') return;
+      if (room.paused) return; // 到点时已暂停 → 不执行，也不重排（等恢复暂停时重新调度）
       const next = serverNextAction(room); // 定时器到点后重新确认仍需托管
       if (!next) return;
       applyServerAction(room, next);
@@ -145,8 +269,16 @@ io.on('connection', (socket) => {
 
   // 创建房间
   socket.on('createRoom', ({ playerName, settings, color }, cb) => {
+    if (!rateLimit(socket, LIMITS.createRoom)) {
+      if (cb) cb({ error: '创建太频繁，请稍后再试' });
+      return;
+    }
     try {
       const room = createRoom(playerName || '房主', settings);
+      if (!room) {
+        if (cb) cb({ error: '服务器房间已满，请稍后再试' });
+        return;
+      }
       const { playerId } = joinRoom(room.roomId, playerName || '房主', socket.id, color);
       socket.join(room.roomId);
       console.log(`[createRoom] ${room.roomId} by ${playerName}`);
@@ -159,9 +291,13 @@ io.on('connection', (socket) => {
   });
 
   // 加入房间（大厅加入 / 对局中断线重连）
-  socket.on('joinRoom', ({ roomId, playerName, color }, cb) => {
+  socket.on('joinRoom', ({ roomId, playerName, color, password, playerId }, cb) => {
+    if (!rateLimit(socket, LIMITS.joinRoom)) {
+      if (cb) cb({ error: '尝试太频繁，请稍后再试' });
+      return;
+    }
     try {
-      const result = joinRoom(roomId, playerName, socket.id, color);
+      const result = joinRoom(roomId, playerName, socket.id, color, password, playerId);
       if (result.error) {
         if (cb) cb({ error: result.error });
         return;
@@ -219,12 +355,19 @@ io.on('connection', (socket) => {
 
   // 游戏操作
   socket.on('action', (action, cb) => {
+    if (!rateLimit(socket, LIMITS.action)) {
+      if (cb) cb({ error: '操作太频繁，请稍候' });
+      return;
+    }
+    console.log('[action]', action?.type, 'from', socket.id);
     try {
       const result = handleAction(socket.id, action);
       if (result.error) {
+        console.log('[action] rejected:', result.error);
         if (cb) cb({ error: result.error });
         return;
       }
+      console.log('[action] ok, broadcasting');
       broadcastGameState(result.room);
       if (cb) cb({ ok: true });
     } catch (e) {
@@ -246,10 +389,130 @@ io.on('connection', (socket) => {
 
   // 聊天
   socket.on('chat', ({ text }) => {
+    if (!rateLimit(socket, LIMITS.chat)) return; // 限流静默丢弃，不打扰
     const room = findRoomBySocket(socket.id);
     if (!room) return;
     const msg = addChat(socket.id, text);
     if (msg) io.to(room.roomId).emit('chat', msg);
+  });
+
+  // 游戏日志
+  socket.on('getLog', ({ roomId }, cb) => {
+    const logs = getLog(roomId);
+    if (cb) cb(logs);
+  });
+
+  // 认输
+  socket.on('surrender', ({ roomId }, cb) => {
+    try {
+      const result = surrender(socket.id);
+      if (result.error) {
+        if (cb) cb({ error: result.error });
+        return;
+      }
+      // 用服务端的房间号广播，不信任客户端传的 roomId（防跨房间骚扰）
+      io.to(result.room.roomId).emit('logUpdate', getLog(result.room.roomId));
+      broadcastGameState(result.room);
+      if (cb) cb({ ok: true });
+    } catch (e) {
+      if (cb) cb({ error: e.message });
+    }
+  });
+
+  // 暂停/继续
+  socket.on('togglePause', ({ roomId }, cb) => {
+    try {
+      const result = togglePause(socket.id);
+      if (result.error) {
+        if (cb) cb({ error: result.error });
+        return;
+      }
+      const rid = result.room.roomId;
+      io.to(rid).emit('pauseUpdate', { paused: result.paused });
+      io.to(rid).emit('logUpdate', getLog(rid));
+      // 恢复时重启回合倒计时 + 重新调度掉线托管（暂停期间两者都停了）
+      if (result.room.gameState?.status === 'playing' && !result.paused) {
+        broadcastGameState(result.room);
+      }
+      if (cb) cb({ ok: true });
+    } catch (e) {
+      if (cb) cb({ error: e.message });
+    }
+  });
+
+  // AI 托管开关（仅房主）
+  socket.on('toggleAITakeover', ({ roomId }, cb) => {
+    try {
+      const result = toggleAITakeover(socket.id);
+      if (result.error) {
+        if (cb) cb({ error: result.error });
+        return;
+      }
+      const rid = result.room.roomId;
+      io.to(rid).emit('aiTakeoverUpdate', { aiTakeover: result.aiTakeover });
+      io.to(rid).emit('logUpdate', getLog(rid));
+      if (cb) cb({ ok: true });
+    } catch (e) {
+      if (cb) cb({ error: e.message });
+    }
+  });
+
+  // 踢人
+  socket.on('kick', ({ roomId, targetId }, cb) => {
+    try {
+      const result = kickPlayer(socket.id, targetId);
+      if (result.error) {
+        if (cb) cb({ error: result.error });
+        return;
+      }
+      const rid = result.room.roomId;
+      // 通知被踢客户端并让其退出 socket 房间（否则其界面还停留在对局里）
+      if (result.targetSocketId) {
+        const tSocket = io.sockets.sockets.get(result.targetSocketId);
+        if (tSocket) {
+          tSocket.leave(rid);
+          tSocket.emit('kicked', { roomId: rid });
+        }
+      }
+      io.to(rid).emit('logUpdate', getLog(rid));
+      if (result.room.gameState) broadcastGameState(result.room);
+      broadcastRoom(result.room);
+      if (cb) cb({ ok: true });
+    } catch (e) {
+      console.error('[kick] error:', e);
+      if (cb) cb({ error: e.message });
+    }
+  });
+
+  // 设置密码
+  socket.on('setPassword', ({ roomId, password }, cb) => {
+    try {
+      const result = setPassword(socket.id, password);
+      if (result.error) {
+        if (cb) cb({ error: result.error });
+        return;
+      }
+      if (cb) cb({ ok: true });
+    } catch (e) {
+      if (cb) cb({ error: e.message });
+    }
+  });
+
+  // 延迟检测
+  socket.on('ping_check', () => {
+    socket.emit('pong_check');
+  });
+
+  // 主动请求状态（修复同步问题）
+  socket.on('requestState', ({ roomId }) => {
+    try {
+      const room = getRoom(roomId); // rooms.js 导出的只读查询（rooms Map 是模块私有）
+      if (!room) return;
+      const player = room.players.find(p => p.socketId === socket.id);
+      if (player) emitGameStateTo(room, player);
+    } catch (e) {
+      console.error('[requestState] error:', e);
+    }
   });
 
   // 断开连接

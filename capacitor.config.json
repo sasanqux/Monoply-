@@ -1,0 +1,15 @@
+{
+  "appId": "com.chongqing.monopoly",
+  "appName": "大富翁重庆之旅",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#1a1a2e"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "backgroundColor": "#1a1a2e",
+      "showSpinner": false
+    }
+  }
+}

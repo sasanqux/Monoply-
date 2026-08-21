@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import ComicIcon from './ComicIcon.vue'
+import GameMenu from './GameMenu.vue'
 import { TILES, VEHICLES, isMetro, METRO_FEE } from '../game/index.js'
 
 const props = defineProps({
@@ -8,8 +9,15 @@ const props = defineProps({
   current: Object,
   isMyTurn: Boolean,
   animating: Boolean, // 掷骰/走格动画播放中，禁用操作按钮
+  roomId: String,
+  isHost: Boolean,
+  paused: Boolean,
+  aiTakeover: Boolean,
+  turnTimeLeft: { type: Number, default: 30 },
+  players: { type: Array, default: () => [] },
+  gameLog: { type: Array, default: () => [] },
 })
-const emit = defineEmits(['dispatch', 'metro'])
+const emit = defineEmits(['dispatch', 'metro', 'surrender', 'pause', 'kick', 'setPassword', 'toggleAITakeover'])
 
 const pendingTile = computed(() => {
   if (props.state.pending?.kind === 'buy') {
@@ -56,6 +64,25 @@ const statusText = computed(() => {
 
 <template>
   <section class="actions card-comic">
+    <!-- 游戏菜单按钮（右上角） -->
+    <div class="actions__menu-btn">
+      <GameMenu
+        :room-id="roomId"
+        :is-host="isHost"
+        :is-my-turn="isMyTurn"
+        :paused="paused"
+        :ai-takeover="aiTakeover"
+        :turn-time-left="turnTimeLeft"
+        :players="players"
+        :game-log="gameLog"
+        @surrender="emit('surrender')"
+        @pause="emit('pause')"
+        @kick="emit('kick', $event)"
+        @set-password="emit('setPassword', $event)"
+        @toggle-a-i-takeover="emit('toggleAITakeover')"
+      />
+    </div>
+
     <!-- 回合阶段条 -->
     <div v-if="phaseSteps.length" class="phase-bar">
       <div v-for="(s, i) in phaseSteps" :key="s.key" class="phase-bar__step" :class="{ 'phase-bar__step--done': s.done, 'phase-bar__step--active': s.active }">
@@ -114,6 +141,13 @@ const statusText = computed(() => {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  position: relative;
+}
+
+.actions__menu-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
 }
 
 /* ===== 回合阶段条 ===== */

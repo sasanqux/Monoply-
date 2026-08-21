@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">大富翁重庆之旅</string>
+    <string name="title_activity_main">大富翁重庆之旅</string>
+    <string name="package_name">com.chongqing.monopoly</string>
+    <string name="custom_url_scheme">com.chongqing.monopoly</string>
+</resources>

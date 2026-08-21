@@ -1,0 +1,24 @@
+{
+  "android": {
+    "icon": {
+      "backgroundSource": {
+        "type": "image",
+        "image": {
+          "path": "../素材/图标.jpg"
+        }
+      },
+      "foregroundSource": {
+        "type": "image",
+        "image": {
+          "path": "../素材/图标.jpg"
+        }
+      }
+    },
+    "splash": {
+      "backgroundColor": "#1a1a2e",
+      "image": {
+        "path": "../素材/启动闪屏.png"
+      }
+    }
+  }
+}

@@ -57,8 +57,8 @@ const requestValue = computed(() => {
 function sendOffer() {
   emit('offer', {
     targetPlayerId: props.targetPlayerId,
-    offer: { lands: [...myOfferLands.value], money: myOfferMoney.value, cards: [] },
-    request: { lands: [...myRequestLands.value], money: myRequestMoney.value, cards: [] },
+    offer: { lands: [...myOfferLands.value], money: myOfferMoney.value },
+    request: { lands: [...myRequestLands.value], money: myRequestMoney.value },
   })
 }
 </script>

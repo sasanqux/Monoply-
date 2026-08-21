@@ -12,13 +12,15 @@ const connected = ref(false)
 const playerName = ref('')
 const playerColor = ref(PLAYER_COLORS[0])
 const roomId = ref('')
+const roomPassword = ref('') // 房间密码
 const room = ref(null)
 const error = ref('')
 
 // 使用 App 级 socket（不自己 connect/disconnect）
 const sock = computed(() => getSocket())
 
-const isHost = computed(() => room.value?.hostId && sock.value && room.value.hostId === sock.value.id)
+// 房主判定：用 players[].isHost（服务端已下发），不依赖 socketId（已停止广播 hostId）
+const isHost = computed(() => !!me.value?.isHost)
 const allReady = computed(() => room.value?.players?.length >= 2 && room.value.players.every(p => p.ready))
 const isJoinMode = computed(() => props.mode === 'join')
 // 我的座位 id（createRoom/joinRoom 回调返回），用于在大厅列表里认出自己
@@ -48,6 +50,12 @@ onMounted(() => {
       if (avail.length > 0) playerColor.value = avail[0]
     }
   })
+  // 大厅阶段被踢：清空房间信息回登录态
+  s.on('kicked', () => {
+    error.value = '你已被房主移出房间'
+    room.value = null
+    myPlayerId.value = ''
+  })
   s.on('gameStart', ({ roomId }) => {
     // 只带 roomId 的轻量信号；对局状态等第一条 gameState 广播（防手牌泄漏）
     emit('enter', { roomId })
@@ -60,6 +68,7 @@ onBeforeUnmount(() => {
     s.off('connect')
     s.off('disconnect')
     s.off('roomUpdate')
+    s.off('kicked')
     s.off('gameStart')
   }
 })
@@ -84,6 +93,7 @@ function joinRoom() {
     roomId: roomId.value.trim().toUpperCase(),
     playerName: playerName.value.trim(),
     color: playerColor.value,
+    password: roomPassword.value || undefined,
   }, (res) => {
     if (res?.error) { error.value = res.error; return }
     myPlayerId.value = res.playerId
@@ -93,6 +103,7 @@ function joinRoom() {
 function startGame() {
   sock.value.emit('startGame', (res) => {
     if (res?.error) error.value = res.error
+    else emit('enter', { playerName: playerName.value, color: playerColor.value, roomId: room.value?.roomId })
   })
 }
 
@@ -141,6 +152,11 @@ function leaveRoom() {
       <div v-if="isJoinMode" class="lobby__field">
         <span class="lobby__label">房间码</span>
         <input v-model="roomId" class="input-comic input-comic--code" placeholder="如 ABC123" maxlength="6" />
+      </div>
+
+      <div v-if="isJoinMode" class="lobby__field">
+        <span class="lobby__label">房间密码</span>
+        <input v-model="roomPassword" class="input-comic" placeholder="无密码则留空" type="password" maxlength="20" />
       </div>
 
       <div class="lobby__btns">

@@ -528,27 +528,31 @@ export function gameReducer(state, action) {
 
     // ===== 玩家交易 =====
     case 'TRADE_OFFER': {
-      // action: { targetPlayerId, offer: { lands: [], money: 0, cards: [] }, request: { lands: [], money: 0, cards: [] } }
+      // action: { targetPlayerId, offer: { lands: [], money: 0 }, request: { lands: [], money: 0 } }
       if (s.phase !== 'landed') break
       const target = s.players.find((pl) => pl.alive && pl.id === action.targetPlayerId)
       if (!target || target.id === p.id) break
+      // 金额归一（拒绝负数：负数金额在接受阶段会被跳过，等于无效条款）
+      const offerMoney = Math.max(0, Math.floor(action.offer?.money || 0))
+      const requestMoney = Math.max(0, Math.floor(action.request?.money || 0))
       // 校验提供的资产是否真的属于发起方
       let invalid = false
-      for (const id of action.offer.lands || []) {
+      for (const id of action.offer?.lands || []) {
         if (!p.properties.includes(id)) { s.log.push('交易失败：你不拥有提供的一块地'); invalid = true; break }
       }
       if (invalid) break
-      for (const id of action.request.lands || []) {
+      for (const id of action.request?.lands || []) {
         if (!target.properties.includes(id)) { s.log.push('交易失败：对方不拥有你要的一块地'); invalid = true; break }
       }
       if (invalid) break
-      if (action.offer.money && p.money < action.offer.money) { s.log.push('交易失败：现金不足'); break }
+      if (offerMoney > 0 && p.money < offerMoney) { s.log.push('交易失败：现金不足'); break }
+      if (requestMoney > 0 && target.money < requestMoney) { s.log.push('交易失败：对方现金不足'); break }
       s.pending = {
         kind: 'trade',
         from: p.id,
         to: target.id,
-        offer: action.offer,
-        request: action.request,
+        offer: { lands: [...(action.offer?.lands || [])], money: offerMoney },
+        request: { lands: [...(action.request?.lands || [])], money: requestMoney },
       }
       s.log.push(`🤝 ${p.name} 向 ${target.name} 发起了交易提案`)
       break
@@ -559,9 +563,28 @@ export function gameReducer(state, action) {
       const tp = s.pending
       const fromP = s.players.find((pl) => pl.id === tp.from)
       const toP = s.players.find((pl) => pl.id === tp.to)
-      if (!fromP || !toP) break
+      if (!fromP || !toP || !fromP.alive || !toP.alive) {
+        s.pending = null
+        s.log.push('❌ 交易对象已出局，交易取消')
+        break
+      }
+      // 复查：从发起到接受之间资产可能已变（破产被迫卖地/现金变动）
+      const offerMoney = Math.max(0, Math.floor(tp.offer.money || 0))
+      const requestMoney = Math.max(0, Math.floor(tp.request.money || 0))
+      const offerLands = (tp.offer.lands || []).filter((id) => fromP.properties.includes(id))
+      const requestLands = (tp.request.lands || []).filter((id) => toP.properties.includes(id))
+      const stillValid =
+        offerLands.length === (tp.offer.lands || []).length &&
+        requestLands.length === (tp.request.lands || []).length &&
+        fromP.money >= offerMoney &&
+        toP.money >= requestMoney
+      if (!stillValid) {
+        s.pending = null
+        s.log.push('❌ 交易条件已变化（等待期间资产变动），交易取消')
+        break
+      }
       // 执行交换：地产
-      for (const id of tp.offer.lands || []) {
+      for (const id of offerLands) {
         fromP.properties = fromP.properties.filter((i) => i !== id)
         toP.properties.push(id)
         const lv = fromP.levels[id] ?? 0
@@ -569,7 +592,7 @@ export function gameReducer(state, action) {
         toP.levels[id] = lv
         delete fromP.mortgaged?.[id]
       }
-      for (const id of tp.request.lands || []) {
+      for (const id of requestLands) {
         toP.properties = toP.properties.filter((i) => i !== id)
         fromP.properties.push(id)
         const lv = toP.levels[id] ?? 0
@@ -578,13 +601,13 @@ export function gameReducer(state, action) {
         delete toP.mortgaged?.[id]
       }
       // 执行交换：现金
-      if (tp.offer.money > 0) {
-        fromP.money -= tp.offer.money
-        toP.money += tp.offer.money
+      if (offerMoney > 0) {
+        fromP.money -= offerMoney
+        toP.money += offerMoney
       }
-      if (tp.request.money > 0) {
-        toP.money -= tp.request.money
-        fromP.money += tp.request.money
+      if (requestMoney > 0) {
+        toP.money -= requestMoney
+        fromP.money += requestMoney
       }
       s.log.push(`✅ 交易达成！${fromP.name} ↔ ${toP.name}`)
       s.pending = null
@@ -823,7 +846,8 @@ export function gameReducer(state, action) {
       if (ap.roundStep !== 0) break // 只在出价阶段接受
       const bidder = s.players[ap.turn]
       if (!bidder || !bidder.alive) break
-      const amount = Math.max(0, Math.floor(action.amount || 0))
+      // 出价归一：非数字/负数一律按 0 处理（防 NaN 混进 bids）
+      const amount = Math.max(0, Math.floor(Number(action.amount) || 0))
       if (amount > 0 && bidder.money < amount) {
         ap.bids[bidder.id] = 0
       } else {

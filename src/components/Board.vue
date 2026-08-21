@@ -84,10 +84,10 @@ function tileSize(t) {
 // 不使用 px 封顶/保底，保证缩放时字与格子永远同比例（不再脱钩）
 function nameFont(name) {
   const len = name.length
-  if (len <= 3) return '1.55cqw'
-  if (len === 4) return '1.35cqw'
-  if (len === 5) return '1.18cqw'
-  return '1.0cqw' // 6 字及以上
+  if (len <= 3) return '1.8cqw'
+  if (len === 4) return '1.5cqw'
+  if (len === 5) return '1.3cqw'
+  return '1.1cqw' // 6 字及以上
 }
 
 // 格子背景：默认白色；被某玩家购买后涂上该玩家颜色；朝天门（起点）用 CSS 棕色斜条纹
@@ -239,7 +239,7 @@ function onTile(t) {
       :title="t.name + (t.sub ? ' · ' + t.sub : '') + (ownerOf(t.id) ? ' · 拥有者 ' + ownerOf(t.id).name : '')"
       @click="onTile(t)"
     >
-      <span class="tile__num">{{ t.id }}</span>
+      <span v-if="!isPropertyTile(t) && t.points" class="tile__num">+{{ t.points }}</span>
       <span v-if="isFork(t)" class="tile__fork" title="分岔路口：可自选路线">分</span>
       <span class="tile__name" :style="{ fontSize: nameFont(t.name) }">{{ t.name }}</span>
       <span v-if="isPropertyTile(t) && t.price" class="tile__price">¥{{ t.price }}<span v-if="t.points" class="tile__points">{{ t.points }}</span></span>
