@@ -3,13 +3,16 @@
   "appName": "大富翁重庆之旅",
   "webDir": "dist",
   "android": {
-    "backgroundColor": "#1a1a2e"
+    "backgroundColor": "#fffef0",
+    "allowMixedContent": true
   },
   "plugins": {
     "SplashScreen": {
-      "launchShowDuration": 1500,
-      "backgroundColor": "#1a1a2e",
-      "showSpinner": false
+      "launchShowDuration": 2500,
+      "backgroundColor": "#fffef0",
+      "showSpinner": false,
+      "splashFullScreen": true,
+      "splashImmersive": true
     }
   }
 }

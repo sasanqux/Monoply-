@@ -439,4 +439,12 @@ const forkCount = computed(() => TILES.filter((t) => t && !t.removed && t.neighb
 /* 通用 */
 .enc__empty { font-size: 13px; font-weight: 900; opacity: 0.5; text-align: center; padding: 20px; }
 .enc__foot { display: flex; justify-content: flex-end; padding-top: 10px; border-top: 3px solid var(--ink); margin-top: 10px; }
+@media (max-width: 768px) {
+  .enc { max-width: calc(100vw - 16px) !important; max-height: 80vh; }
+  .enc__stats { grid-template-columns: repeat(2, 1fr); }
+  .enc__card-item { flex-direction: column; }
+  .enc__card-icon { flex-direction: row; min-width: 0; }
+  .enc__tabs { gap: 3px; }
+  .enc__tab { font-size: 11px; padding: 3px 8px; }
+}
 </style>

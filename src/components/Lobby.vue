@@ -36,40 +36,48 @@ function toggleReady() {
 // 已被占用的颜色
 const usedColors = computed(() => room.value?.players?.map(p => p.color) || [])
 
+// 具名监听器：卸载时逐个精确移除，绝不用无参 off()（会误删 App.vue 注册的全局 connect/kicked/roomUpdate 监听）
+function onConnect() { connected.value = true }
+function onDisconnect() { connected.value = false }
+function onRoomUpdate(r) {
+  room.value = r
+  // 颜色被抢了自动换
+  if (playerColor.value && usedColors.value.includes(playerColor.value)) {
+    const avail = PLAYER_COLORS.filter(c => !usedColors.value.includes(c))
+    if (avail.length > 0) playerColor.value = avail[0]
+  }
+}
+// 大厅阶段被踢：清空房间信息回登录态
+function onKicked() {
+  error.value = '你已被房主移出房间'
+  room.value = null
+  myPlayerId.value = ''
+}
+function onGameStart({ roomId }) {
+  // 只带 roomId 的轻量信号；对局状态等第一条 gameState 广播（防手牌泄漏）。
+  // 昵称/颜色/密码随行携带：断线重连存档需要（密码由 App.vue 侧存档处理）
+  emit('enter', { roomId, playerName: playerName.value, color: playerColor.value, password: roomPassword.value || undefined })
+}
+
 onMounted(() => {
   const s = sock.value
   if (!s) return
   connected.value = s.connected
-  s.on('connect', () => { connected.value = true })
-  s.on('disconnect', () => { connected.value = false })
-  s.on('roomUpdate', (r) => {
-    room.value = r
-    // 颜色被抢了自动换
-    if (playerColor.value && usedColors.value.includes(playerColor.value)) {
-      const avail = PLAYER_COLORS.filter(c => !usedColors.value.includes(c))
-      if (avail.length > 0) playerColor.value = avail[0]
-    }
-  })
-  // 大厅阶段被踢：清空房间信息回登录态
-  s.on('kicked', () => {
-    error.value = '你已被房主移出房间'
-    room.value = null
-    myPlayerId.value = ''
-  })
-  s.on('gameStart', ({ roomId }) => {
-    // 只带 roomId 的轻量信号；对局状态等第一条 gameState 广播（防手牌泄漏）
-    emit('enter', { roomId })
-  })
+  s.on('connect', onConnect)
+  s.on('disconnect', onDisconnect)
+  s.on('roomUpdate', onRoomUpdate)
+  s.on('kicked', onKicked)
+  s.on('gameStart', onGameStart)
 })
 
 onBeforeUnmount(() => {
   const s = sock.value
   if (s) {
-    s.off('connect')
-    s.off('disconnect')
-    s.off('roomUpdate')
-    s.off('kicked')
-    s.off('gameStart')
+    s.off('connect', onConnect)
+    s.off('disconnect', onDisconnect)
+    s.off('roomUpdate', onRoomUpdate)
+    s.off('kicked', onKicked)
+    s.off('gameStart', onGameStart)
   }
 })
 
@@ -109,6 +117,12 @@ function startGame() {
 
 function leaveRoom() {
   sock.value?.emit('leaveRoom')
+  emit('back')
+}
+
+// 返回：若还挂在房间里（防幽灵座位占坑），先通知服务端离开再回退
+function goBack() {
+  if (room.value) sock.value?.emit('leaveRoom')
   emit('back')
 }
 </script>
@@ -166,7 +180,7 @@ function leaveRoom() {
         <button v-else class="btn-comic btn-comic--blue" :disabled="!playerName.trim()" @click="createRoom">
           创建
         </button>
-        <button class="btn-comic btn-comic--ghost" @click="emit('back')">返回</button>
+        <button class="btn-comic btn-comic--ghost" @click="goBack">返回</button>
       </div>
 
       <p v-if="error" class="lobby__error">{{ error }}</p>
@@ -214,6 +228,7 @@ function leaveRoom() {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 20px;
 }
 .lobby__card {
@@ -234,6 +249,10 @@ function leaveRoom() {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.lobby__field .input-comic {
+  flex: 1;
+  min-width: 0;
 }
 .lobby__label {
   font-size: 14px;
@@ -324,5 +343,12 @@ function leaveRoom() {
   font-weight: 900;
   opacity: 0.6;
   font-style: italic;
+}
+@media (max-width: 768px) {
+  .lobby__card { max-width: calc(100vw - 32px); }
+  .lobby__field { gap: 6px; }
+  .lobby__label { width: 40px; font-size: 12px; }
+  .lobby__code-value { font-size: 28px; }
+  .lobby__color-btn { width: 24px; height: 24px; }
 }
 </style>

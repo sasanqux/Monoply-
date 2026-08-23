@@ -84,13 +84,16 @@ function homePos() {
   const a = anchorRect()
   const vw = window.innerWidth
   const vh = window.innerHeight
+  // 手机端：骰子放到屏幕中间偏上（避免被底部操作栏遮挡/截断）
+  if (vw <= 768) {
+    return { x: vw / 2 - w / 2, y: vh * 0.28 }
+  }
   if (a && a.width > 0) {
-    // 紧贴面板右内侧（留 8px 边距），垂直居中偏上（避开底部图例区域）
+    // 桌面端：紧贴面板右内侧，垂直居中偏上
     const x = Math.max(12, Math.min(a.right - w - 8, vw - w - 12))
     const y = Math.max(8, Math.min(a.top + 28, vh - 70))
     return { x, y }
   }
-  // 无锚点回退：视口底部居中
   return { x: vw / 2 - w / 2, y: vh - 90 }
 }
 
@@ -116,6 +119,13 @@ watch(
 )
 
 // ===== 拖拽 =====
+// 点击投掷：手机端直接从当前位置发射到棋盘
+function quickRoll() {
+  if (state.value !== 'idle' || !props.canThrow) return
+  const h = homePos()
+  launch(h.x + pairWidth(dieCount.value) / 2, h.y + DIE / 2)
+}
+
 function onPointerDown(e) {
   if (state.value !== 'idle' || !props.canThrow) return
   if (e.button !== undefined && e.button !== 0) return
@@ -173,6 +183,7 @@ function onPointerUp(e) {
 function launch(fromX, fromY) {
   state.value = 'flying'
   thrown = true
+  // 震动由 App 层统一触发（vibrate(60)），这里不再叠加第二次
   emit('throw')
 
   const b = boardRect()
@@ -207,18 +218,26 @@ function launch(fromX, fromY) {
   raf = requestAnimationFrame(flyFrame)
 }
 
-function startRolling() {
-  state.value = 'rolling'
-  scale.value = 1
-  const faces = props.finalDice?.length ? props.finalDice : [1]
-  const from = cubes.map((c) => ({ x: c.x, y: c.y }))
-  const ends = faces.map((f, i) => {
+// 目标朝向：faces 每颗骰子的最终旋转（含整圈数）
+function endRot(faces) {
+  return faces.map((f) => {
     const t = FACE_ROT[f] || FACE_ROT[1]
     const turns = 720
     const dirXr = Math.random() > 0.5 ? 1 : -1
     const dirYr = Math.random() > 0.5 ? 1 : -1
     return { x: t.x + turns * dirXr, y: t.y + turns * dirYr }
   })
+}
+let rollEnds = null
+
+function startRolling() {
+  state.value = 'rolling'
+  scale.value = 1
+  // 联机时广播可能晚于动画开始：先按已有值起滚，真实点数到达后由 watch 校正
+  const faces = props.finalDice?.length ? props.finalDice : [1]
+  rollEnds = endRot(faces)
+  const from = cubes.map((c) => ({ x: c.x, y: c.y }))
+  const ends = rollEnds
   const t0 = performance.now()
   const dur = 900
   cancelAnimationFrame(raf)
@@ -239,6 +258,16 @@ function startRolling() {
   }
   raf = requestAnimationFrame(rollFrame)
 }
+
+// 真实点数在滚动中途到达：立即校正落点朝向，避免"显示1点却走了8格"
+watch(
+  () => props.finalDice,
+  (fd) => {
+    if (state.value !== 'rolling' || !fd?.length || !rollEnds || fd.length !== rollEnds.length) return
+    const next = endRot(fd)
+    for (let i = 0; i < next.length; i++) rollEnds[i] = next[i]
+  }
+)
 
 function bounce() {
   state.value = 'rolling'
@@ -285,7 +314,8 @@ const dieStyles = computed(() =>
       :style="pairStyle"
       @pointerdown="onPointerDown"
     >
-      <p v-if="state === 'idle'" class="dice-throw__hint">🎯 拖到棋盘上扔出去</p>
+      <p v-if="state === 'idle'" class="dice-throw__hint">🎯 拖到棋盘或点击投掷</p>
+      <button v-if="state === 'idle' && canThrow" class="dice-throw__tap" @pointerdown.stop @click.stop="quickRoll">点击投掷</button>
       <div
         v-for="i in dieCount"
         :key="i"
@@ -349,6 +379,30 @@ const dieStyles = computed(() =>
 
 .dice-throw__pair--drag {
   cursor: grabbing;
+}
+
+/* 点击投掷按钮（手机端首选） */
+.dice-throw__tap {
+  position: absolute;
+  bottom: -56px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 900;
+  background: var(--pop-red);
+  color: #fff;
+  border: 3px solid var(--ink);
+  border-radius: 8px;
+  box-shadow: 3px 3px 0 0 var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  z-index: 3;
+  transition: transform 0.1s ease;
+}
+.dice-throw__tap:active {
+  transform: translateX(-50%) scale(0.94);
 }
 
 .die3d {

@@ -205,8 +205,9 @@ try {
       // Bob 的回合被服务器代打完毕 → 验证重连
       check('掉线玩家回合由服务器托管推进', true)
       const B2 = makeClient()
-      const rejoin = await B2.emit('joinRoom', { roomId, playerName: 'Bob' })
-      check('同名重连找回座位', !!rejoin.ok && !!rejoin.rejoined && rejoin.playerId === bobId)
+      // 按 playerId 重连（安全修复后已移除"按昵称顶替座位"的兜底，昵称可被任意人冒用）
+      const rejoin = await B2.emit('joinRoom', { roomId, playerName: 'Bob', playerId: bobId })
+      check('playerId 重连找回座位', !!rejoin.ok && !!rejoin.rejoined && rejoin.playerId === bobId)
       for (let k = 0; k < 20 && !B2.state; k++) await sleep(100)
       check('重连后立即收到 gameState', !!B2.state && !!B2.myId)
       if (B2.state) {

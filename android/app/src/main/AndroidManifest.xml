@@ -15,7 +15,19 @@
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
+            android:screenOrientation="portrait"
             android:exported="true">
+            <!-- 声明已适配全面屏比例（防止 ColorOS 等系统强制压比例留黑边） -->
+            <property
+                android:name="android.window.MaxAspectRatio"
+                android:value="2.4" />
+            <property
+                android:name="android.window.MinAspectRatio"
+                android:value="1.0" />
+            <!-- 旧系统兼容写法 -->
+            <meta-data
+                android:name="android.max_aspect"
+                android:value="2.4" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

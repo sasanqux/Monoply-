@@ -1,7 +1,7 @@
 // card.js — 13 种卡片：数据 + 效果（大宇 4 代 + 过江配合 + 送神/股票）
 import { TILES, isPropertyTile } from './board.js'
 import { alivePlayers } from './gameOver.js'
-import { sendGod, handleGodTile } from './god.js'
+import { sendGod, handleGodTile, applyPovertyPenalty } from './god.js'
 import { applyBlackStock, applyRedStock } from './stock.js'
 
 export const CARDS = [
@@ -37,6 +37,7 @@ export function cardTargetKind(cardType) {
     case 'swap':
       return 'swap'
     case 'hold':
+    case 'steal':
       return 'player'
     case 'blackStock':
     case 'redStock':
@@ -51,7 +52,7 @@ export function applyCard(state, player, card, target) {
   switch (card.type) {
     case 'buy': {
       const tile = TILES[target?.tileId]
-      if (!tile || !isPropertyTile(tile)) return false
+      if (!tile || !isPropertyTile(tile) || tile.removed) return false
       const owner = state.players.find((p) => p.alive && p.properties.includes(tile.id))
       if (owner || player.money < tile.price) return false
       player.money -= tile.price
@@ -68,26 +69,20 @@ export function applyCard(state, player, card, target) {
       if (!them || them.id === player.id) return false
       const theirIdx = them.properties.indexOf(theirTile.id)
       const myTile = TILES[player.properties[myIdx]]
-      // 交换（含等级）
       const myLevel = player.levels[myTile.id] ?? 0
       const theirLevel = them.levels[theirTile.id] ?? 0
       player.properties[myIdx] = theirTile.id
       them.properties[theirIdx] = myTile.id
-      if (myLevel) {
-        player.levels[theirTile.id] = myLevel
-        delete player.levels[myTile.id]
-      } else delete player.levels[theirTile.id]
-      if (theirLevel) {
-        them.levels[myTile.id] = theirLevel
-        delete them.levels[theirTile.id]
-      } else delete them.levels[myTile.id]
-      // 抵押标记跟着地走（否则原主人 mortgaged{} 会指向已不属于自己的地）
+      // 等级跟地走：换来的地保留它原来的等级（不跟人搬家，否则 3 级楼换 0 级空地会凭空升/降级）
+      player.levels[theirTile.id] = theirLevel
+      them.levels[myTile.id] = myLevel
+      // 抵押标记跟地走到新主人（抵押中的地换手后仍处于抵押状态，不能凭空"洗白"）
       player.mortgaged = player.mortgaged || {}
       them.mortgaged = them.mortgaged || {}
       const myMort = !!player.mortgaged[myTile.id]
       const theirMort = !!them.mortgaged[theirTile.id]
-      if (myMort) { delete player.mortgaged[myTile.id]; player.mortgaged[theirTile.id] = true }
-      if (theirMort) { delete them.mortgaged[theirTile.id]; them.mortgaged[myTile.id] = true }
+      if (myMort) { delete player.mortgaged[myTile.id]; them.mortgaged[myTile.id] = true }
+      if (theirMort) { delete them.mortgaged[theirTile.id]; player.mortgaged[theirTile.id] = true }
       state.log.push(`🔁 ${player.name} 用换地卡与 ${them.name} 交换了「${myTile.name}」和「${theirTile.name}」`)
       return true
     }
@@ -154,24 +149,27 @@ export function applyCard(state, player, card, target) {
       return true
     }
     case 'blackStock': {
-      // 黑市卡：指定股票下回合涨停 +20%
+      // 黑市卡：指定股票下回合涨停 +20%（byPlayerId 用于服务器脱敏：只有用卡人能看到标记）
       if (!target?.code) {
         state.log.push('黑市卡需要指定股票代码')
         return false
       }
-      return applyBlackStock(state, target.code)
+      return applyBlackStock(state, target.code, player.id)
     }
     case 'redStock': {
-      // 红市卡：指定股票下回合涨 10%~30%
+      // 红市卡：指定股票下回合涨 10%~30%（同上脱敏）
       if (!target?.code) {
         state.log.push('红市卡需要指定股票代码')
         return false
       }
-      return applyRedStock(state, target.code)
+      return applyRedStock(state, target.code, player.id)
     }
     case 'summonGod': {
       // 请神卡：随机附身一只神仙
-      return handleGodTile(state, player)
+      const godId = handleGodTile(state, player)
+      // 与踩神仙格路径一致：抽中穷神立即扣现金 20%
+      if (player.god === 'godOfPoverty') applyPovertyPenalty(state, player)
+      return godId
     }
     case 'barrier': {
       // 路障卡：在指定地产格放置路障，踩中者扣50积分并截停（存 state.barriers，随对局隔离）

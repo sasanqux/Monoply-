@@ -1,12 +1,12 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import ComicIcon from './ComicIcon.vue'
-import { setServerUrl } from '../net/socket.js'
+import { setServerUrl, disconnect } from '../net/socket.js'
 const emit = defineEmits(['start', 'rejoin'])
 
 const showSettings = ref(false)
 const serverUrl = ref(localStorage.getItem('monopoly_server') || 'http://110.42.227.121:8080')
-const savedGame = ref(null) // 保存的游戏信息
+const savedGame = ref(null) // 联机游戏信息
 
 onMounted(() => {
   // 检查是否有进行中的游戏
@@ -26,6 +26,7 @@ function saveServer() {
   let url = serverUrl.value.trim()
   if (url && !/^https?:\/\//.test(url)) url = 'http://' + url
   setServerUrl(url)
+  disconnect() // 断开旧连接：下次 connect() 才会用新地址（socket 是单例，不断开会一直连旧服务器）
   showSettings.value = false
 }
 </script>
@@ -82,6 +83,7 @@ function saveServer() {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh;
   gap: 24px;
 }
 .home__logo { text-align: center; }

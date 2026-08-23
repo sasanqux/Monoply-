@@ -1,7 +1,6 @@
 <script setup>
 import { computed } from 'vue'
 import ComicIcon from './ComicIcon.vue'
-import GameMenu from './GameMenu.vue'
 import { TILES, VEHICLES, isMetro, METRO_FEE } from '../game/index.js'
 
 const props = defineProps({
@@ -64,25 +63,6 @@ const statusText = computed(() => {
 
 <template>
   <section class="actions card-comic">
-    <!-- 游戏菜单按钮（右上角） -->
-    <div class="actions__menu-btn">
-      <GameMenu
-        :room-id="roomId"
-        :is-host="isHost"
-        :is-my-turn="isMyTurn"
-        :paused="paused"
-        :ai-takeover="aiTakeover"
-        :turn-time-left="turnTimeLeft"
-        :players="players"
-        :game-log="gameLog"
-        @surrender="emit('surrender')"
-        @pause="emit('pause')"
-        @kick="emit('kick', $event)"
-        @set-password="emit('setPassword', $event)"
-        @toggle-a-i-takeover="emit('toggleAITakeover')"
-      />
-    </div>
-
     <!-- 回合阶段条 -->
     <div v-if="phaseSteps.length" class="phase-bar">
       <div v-for="(s, i) in phaseSteps" :key="s.key" class="phase-bar__step" :class="{ 'phase-bar__step--done': s.done, 'phase-bar__step--active': s.active }">
@@ -93,13 +73,14 @@ const statusText = computed(() => {
 
     <div class="actions__status-col">
       <p class="actions__status" :class="{ 'actions__status--mine': isMyTurn }">{{ statusText }}</p>
+      <p v-if="paused" class="actions__paused">⏸ 游戏已暂停（房主暂停中，操作暂不可用）</p>
       <p class="actions__meta">
         <span>第 {{ state.round }} 回合</span>
         <span class="actions__dice"><ComicIcon name="dice" :size="14" /> {{ state.dice ? state.dice.join(' + ') : '—' }}</span>
       </p>
     </div>
 
-    <div v-if="isMyTurn" class="actions__btns">
+    <div v-if="isMyTurn && !paused" class="actions__btns">
       <!-- 掷骰阶段：骰子在棋盘下方（提示词在骰子下方），这里只显示状态文字 -->
       <template v-if="state.phase === 'roll'">
         <span v-if="animating" class="actions__roll-hint">🎲 骰子飞行中…</span>
@@ -107,15 +88,15 @@ const statusText = computed(() => {
 
       <template v-else-if="state.phase === 'landed'">
         <template v-if="pendingTile">
-          <button class="btn-comic" :disabled="!canBuy || animating" @click="emit('dispatch', { type: 'BUY_PROPERTY' })">
+          <button class="btn-comic" :disabled="!canBuy || animating || paused" @click="emit('dispatch', { type: 'BUY_PROPERTY' })">
             购买 ¥{{ pendingTile.price }}
           </button>
-          <button class="btn-comic btn-comic--ghost" :disabled="animating" @click="emit('dispatch', { type: 'SKIP_BUY' })">放弃</button>
+          <button class="btn-comic btn-comic--ghost" :disabled="animating || paused" @click="emit('dispatch', { type: 'SKIP_BUY' })">放弃</button>
         </template>
-        <button v-if="metroPending" class="btn-comic btn-comic--blue" :disabled="animating" @click="emit('metro')">
+        <button v-if="metroPending" class="btn-comic btn-comic--blue" :disabled="animating || paused" @click="emit('metro')">
           <ComicIcon name="metro" :size="17" /> 乘轻轨 ¥{{ metroFee }}
         </button>
-        <button class="btn-comic btn-comic--yellow" :disabled="animating" @click="emit('dispatch', { type: 'END_TURN' })">结束回合</button>
+        <button class="btn-comic btn-comic--yellow" :disabled="animating || paused" @click="emit('dispatch', { type: 'END_TURN' })">结束回合</button>
       </template>
     </div>
 
@@ -238,6 +219,17 @@ const statusText = computed(() => {
   color: var(--pop-red);
 }
 
+.actions__paused {
+  font-size: 12px;
+  font-weight: 900;
+  color: #b45309;
+  background: #fef3c7;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  padding: 2px 8px;
+  align-self: flex-start;
+}
+
 .actions__status-col {
   display: flex;
   flex-direction: column;
@@ -308,5 +300,26 @@ const statusText = computed(() => {
   height: 10px;
   border: 2px solid var(--ink);
   border-radius: 3px;
+}
+/* ===== 手机端：底部固定栏内部样式 ===== */
+@media (max-width: 768px) {
+  .actions__menu-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+  }
+  /* 固定高度（按按钮态预留）：掷骰提示 ↔ 购买按钮切换时高度不变，棋盘不被挤压跳动 */
+  .actions {
+    min-height: 92px;
+    align-content: center;
+  }
+  .phase-bar {
+    padding-bottom: 4px;
+    margin-bottom: 2px;
+  }
+  .actions__status { font-size: 13px; }
+  .actions__meta { font-size: 11px; gap: 8px; }
+  .actions__btns { gap: 6px; }
+  .legend { display: none; }
 }
 </style>

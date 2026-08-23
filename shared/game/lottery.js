@@ -1,15 +1,15 @@
 // lottery.js — 彩票系统
 // 规则：路过彩票站可购买彩票（¥500/张，选 1-100 数字，全局唯一）
-// 每 5 回合公布一个中奖数字，有人中→拿全部奖金，重置基础¥10000，新一轮
-// 无人中→下一回合换一个新数字直到有人中
-// 中奖那回合的下一回合直接开始新一轮
+// 每 5 圈公布一个中奖数字，有人中→拿全部奖金，重置基础¥5000，新一轮
+// 无人中→下一圈换一个新数字直到有人中（每圈最多开一次奖）
+// 中奖那圈的下一圈直接开始新一轮
 import { TILES } from './board.js'
 
-const BASE_PRIZE = 10000
+const BASE_PRIZE = 5000
 const TICKET_PRICE = 500
 
 // 彩票状态存储在 state.lottery 中：
-// { round: 当前期数开始回合, pool: 当前奖池, pickedNumbers: {playerId: [数字]}, currentWinning: 当前中奖数字|null, phase: 'buying'|'drawing' }
+// { round: 当前期开始回合, pool: 当前奖池, pickedNumbers: {playerId: [数字]}, currentWinning: 当前中奖数字|null, phase: 'buying'|'drawing' }
 
 // 初始化彩票状态
 export function initLotteryState() {
@@ -17,9 +17,10 @@ export function initLotteryState() {
     round: 1,          // 当前期开始回合
     pool: BASE_PRIZE,  // 当前奖池（基础 + 购票金额）
     pickedNumbers: {}, // { playerId: [num1, num2, ...] }
-    currentWinning: null, // 当前开奖数字
+    currentWinning: null, // 当前中奖数字
     phase: 'buying',   // 'buying'=可购买期, 'drawing'=开奖中期
-    drawnThisRound: false, // 本期是否已开过奖
+    drawnThisRound: false, // 本圈是否已开过奖
+    _lastTickRound: 0, // 上次 tick 的圈数，用于检测圈数变化
   }
 }
 
@@ -91,15 +92,23 @@ export function tickLottery(state) {
   const lot = state.lottery
   if (!lot) return
 
+  // 圈数变化时重置本圈开奖标志（让 buying 和 drawing 各自每圈只触发一次）
+  if (lot._lastTickRound !== state.round) {
+    lot.drawnThisRound = false
+    lot._lastTickRound = state.round
+  }
+
   if (lot.phase === 'buying') {
-    // 检查是否到了开奖回合（每 5 回合）
+    // 检查是否到了开奖圈数（每 5 圈）
     if (state.round > lot.round && (state.round - lot.round) % 5 === 0 && !lot.drawnThisRound) {
       // 进入开奖
       drawNumber(state)
     }
   } else if (lot.phase === 'drawing') {
-    // 开奖中期：无人中奖则换一个新号码
-    drawNumber(state)
+    // 开奖中期：无人中奖则每圈换一个新号码（不是每回合，用 drawnThisRound 控制频率）
+    if (!lot.drawnThisRound) {
+      drawNumber(state)
+    }
   }
 }
 
@@ -132,17 +141,29 @@ function drawNumber(state) {
       winner.money += prize
       winnerName = winner.name
       state.log.push(`🎉🎊 ${winner.name} 的彩票「${winning}」中了头奖！获得 ¥${prize}！🎊🎉`)
+      // 中奖后：下一回合开始新一轮
+      lot.phase = 'drawing_won' // 标记：下回合重置
+      // 弹出开奖弹窗（含庆祝）；已有挂起（如拍卖）时让位，结果保留在日志与 lottery 状态里
+      if (!state.pending) {
+        state.pending = { kind: 'lottery_draw', winning, winnerId, winnerName, prize, pool: lot.pool }
+      }
+    } else {
+      // 中奖者已破产出局：奖池不蒸发，滚入下一轮继续抽；顺带清掉死者的号码
+      delete lot.pickedNumbers[winnerId]
+      lot.phase = 'drawing' // 视作无人中奖，下回合继续抽
+      state.log.push(`😢 中奖玩家已出局，本轮奖池 ¥${lot.pool} 滚入下一轮...`)
+      if (!state.pending) {
+        state.pending = { kind: 'lottery_draw', winning, winnerId: null, winnerName: null, prize: 0, pool: lot.pool }
+      }
     }
-    // 中奖后：下一回合开始新一轮
-    lot.phase = 'drawing_won' // 标记：下回合重置
-    // 弹出开奖弹窗（含庆祝）
-    state.pending = { kind: 'lottery_draw', winning, winnerId, winnerName, prize: lot.pool, pool: lot.pool }
   } else {
     // 无人中奖
     state.log.push(`😢 无人中奖，下一回合重新开奖...`)
     lot.phase = 'drawing' // 保持开奖状态，下回合继续抽
     // 弹出开奖弹窗（无庆祝）
-    state.pending = { kind: 'lottery_draw', winning, winnerId: null, winnerName: null, prize: 0, pool: lot.pool }
+    if (!state.pending) {
+      state.pending = { kind: 'lottery_draw', winning, winnerId: null, winnerName: null, prize: 0, pool: lot.pool }
+    }
   }
 }
 
@@ -178,7 +199,10 @@ export function tryTriggerLottery(state, player) {
   if (state.pending?.kind === 'lottery') return false
   // 本回合已买过
   if (state.lotteryBoughtTurn) return false
+  // 本回合已弹过（关掉不买也不再重弹，否则同回合内每个操作都会被再弹一次）
+  if (state.lotteryPromptedTurn) return false
 
+  state.lotteryPromptedTurn = true
   state.pending = { kind: 'lottery', tileId: passed }
   state.log.push(`🎫 ${player.name} 路过彩票站，可以购买彩票！`)
   return true
@@ -188,8 +212,10 @@ export function tryTriggerLottery(state, player) {
 export function tryTriggerLotteryDeferred(state) {
   if (state.pending || !state._lotteryTile) return false
   if (state.lotteryBoughtTurn) return false
+  if (state.lotteryPromptedTurn) return false
   if (state.lottery?.phase !== 'buying') return false
   const tileId = state._lotteryTile
+  state.lotteryPromptedTurn = true // 与 tryTriggerLottery 共用标志：本回合只弹一次
   state.pending = { kind: 'lottery', tileId }
   state._lotteryTile = null
   // 弹窗对象是当前回合玩家（路过彩票站的人），不能按"谁站在彩票站上"找（可能撞上别的玩家）

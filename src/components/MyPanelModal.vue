@@ -45,6 +45,7 @@ const lands = computed(() => {
       tag: isBridge(t) ? '桥' : isMetro(t) ? '轻轨' : '',
       lv,
       shop: SHOPS[lv],
+      value: t.price + Math.round(t.price * 0.5 * lv),
       canUp: props.isMyTurn && isPropertyTile(t) && !(isMetro(t) && !t.upgradable) && lv < 3 && props.me.money >= upgradeCost(t),
       group,
       mortgaged,
@@ -54,6 +55,20 @@ const lands = computed(() => {
       redeemCost: Math.round(t.price * 0.5 * 1.1),
     }
   })
+})
+
+// 地产总价值 = 所有地块地价 + 升级投入（抵押地按50%估值）
+const totalValue = computed(() => {
+  if (!props.me) return 0
+  let total = 0
+  for (const id of props.me.properties) {
+    const t = TILES[id]
+    if (!t) continue
+    const lv = props.me.levels[id] ?? 0
+    const mortgaged = props.me.mortgaged?.[id]
+    total += mortgaged ? Math.round(t.price * 0.5) : t.price + Math.round(t.price * 0.5 * lv)
+  }
+  return total
 })
 
 function mortgage(id) {
@@ -134,12 +149,17 @@ function sparkPoints(code) {
       <!-- 地产 -->
       <div v-else-if="mode === 'lands'" class="modal__body">
         <div v-if="lands.length" class="lands">
+          <div class="lands__total">
+            <span>🏠 {{ lands.length }} 块地产 · 总价值</span>
+            <b>¥{{ totalValue }}</b>
+          </div>
           <div v-for="l in lands" :key="l.id" class="land-row" :class="{ 'land-row--mortgaged': l.mortgaged }">
             <button class="land-row__main" @click="emit('info', l.id)">
               <span class="land-row__name">{{ l.name }}</span>
               <b v-if="l.tag" class="tag-comic tag-comic--blue">{{ l.tag }}</b>
               <span class="land-row__shop">{{ l.shop.name }}</span>
               <span v-if="l.group" class="land-row__group">{{ l.group.name }} {{ l.group.n }}/{{ l.group.total }}</span>
+              <span class="land-row__value">¥{{ l.value }}</span>
             </button>
             <button v-if="l.mortgaged" class="land-row__btn land-row__btn--redeem" :disabled="!l.canUnmortgage" @click="unmortgage(l.id)">
               <span>赎回</span><small>¥{{ l.redeemCost }}</small>
@@ -376,6 +396,23 @@ function sparkPoints(code) {
   gap: 8px;
 }
 
+.lands__total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #fef3c7;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.lands__total b {
+  font-size: 18px;
+  color: var(--pop-red);
+}
+
 .land-row {
   display: flex;
   align-items: center;
@@ -482,6 +519,15 @@ function sparkPoints(code) {
   font-size: 10.5px;
   font-weight: 900;
   opacity: 0.6;
+}
+
+.land-row__value {
+  margin-left: auto;
+  margin-right: 8px;
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--pop-blue);
+  white-space: nowrap;
 }
 
 .land-row__go {
@@ -613,5 +659,13 @@ function sparkPoints(code) {
   line-height: 1.5;
   padding-top: 6px;
   border-top: 2px dashed rgba(26, 26, 26, 0.25);
+}
+@media (max-width: 768px) {
+  .my-panel { max-width: calc(100vw - 16px) !important; }
+  .card-item { width: 100% !important; }
+  .stocks__list { max-height: 200px; }
+  .stock-row__spark { width: 40px; }
+  .stock-row__price-box { min-width: 60px; }
+  .stock-input-row { flex-wrap: wrap; }
 }
 </style>

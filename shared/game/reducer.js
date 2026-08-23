@@ -44,7 +44,7 @@
 import { TILES, START_MONEY_DEFAULT, isPropertyTile, isMetro, METRO_FEE, GROUPS } from './board.js'
 import { rollForPlayer, movePlayer, stepOneTile } from './movement.js'
 import { addMoney, takeLoan, repayLoan, processLoanDue, loanLimit, payMoney } from './bank.js'
-import { upgradeCost, mortgageTile, unmortgageTile, totalAssets, getRent, isGroupComplete } from './property.js'
+import { upgradeCost, canUpgrade, mortgageTile, unmortgageTile, totalAssets, getRent, isGroupComplete } from './property.js'
 import { applyCard, cardTargetKind, CARDS, randomCard } from './card.js'
 import { handleLanding, nextTurn, currentPlayer } from './turn.js'
 import { checkBankrupt } from './gameOver.js'
@@ -255,7 +255,7 @@ export function gameReducer(state, action) {
   s.announcedGroups ??= {}
   s.closedBridges ??= {}
   s.barriers ??= {}
-  const p = currentPlayer(s)
+  let p = currentPlayer(s)
   if (!p) return s // 无当前玩家（极端情况）防护
 
   // 落地后自动检测卡片商店/彩票站（仅 landed 阶段且无 pending）
@@ -271,6 +271,8 @@ export function gameReducer(state, action) {
       if (s.phase !== 'order') break
       const os = s.orderState
       if (os.done) break
+      // 跳过已有成绩的玩家：加赛只重掷平局者，未平局者的首次成绩保留
+      while (os.index < s.players.length && os.rolls[s.players[os.index].id]) os.index++
       const curPlayer = s.players[os.index]
       if (!curPlayer) break
       // 掷 3 颗骰子
@@ -292,6 +294,8 @@ export function gameReducer(state, action) {
       if (s.phase === 'order') {
         while (!s.orderState.done) {
           const os = s.orderState
+          // 跳过加赛保留成绩的玩家
+          while (os.index < s.players.length && os.rolls[s.players[os.index].id]) os.index++
           const curPlayer = s.players[os.index]
           if (!curPlayer) { os.done = true; break }
           const dice = []
@@ -300,6 +304,8 @@ export function gameReducer(state, action) {
           os.index++
           if (os.index >= s.players.length) resolveOrder(s)
         }
+        // 定序会重排 players，重新取当前玩家（旧 p 指向重排前的对象，会让错误玩家掷骰）
+        p = currentPlayer(s)
       }
       if (s.phase !== 'roll') break
       // 贷款到期检测（回合开始时）
@@ -342,6 +348,7 @@ export function gameReducer(state, action) {
 
     // 前端逐格推进：每走 1 格 dispatch 一次 STEP
     case 'STEP': {
+      if (s.phase !== 'step') break
       if (!s.stepsRemaining || s.stepsRemaining <= 0) break
       const cur = TILES[p.pos]
       // 来路 = walkPath 里上一格（本回合内）或上回合遗留的 cameFrom
@@ -466,11 +473,10 @@ export function gameReducer(state, action) {
 
     case 'UPGRADE_PROPERTY': {
       const tile = TILES[action.tileId]
-      if (!tile || !isPropertyTile(tile) || !p.properties.includes(tile.id)) break
+      // 统一走 canUpgrade：未抵押 + 本回合踩过 + 等级/资金校验（防直发 action 绕过踩格规则/抵押地升级）
+      if (!tile || !canUpgrade(s, p, tile)) break
       const level = p.levels[tile.id] ?? 0
-      if (level >= 3) break
       const cost = upgradeCost(tile)
-      if (p.money < cost) break
       p.money -= cost
       p.levels[tile.id] = level + 1
       s.log.push(`🏗 ${p.name} 将「${tile.name}」升级到 ${level + 1} 级（¥${cost}，现 ¥${p.money}）`)
@@ -521,6 +527,7 @@ export function gameReducer(state, action) {
       }
       if (s.pending?.kind === 'metro') s.pending = null
       if (s.pending?.kind === 'shop') break // 卡片商店未关闭，不推进回合（等玩家关店）
+      if (s.pending?.kind === 'shield') break // 免租卡询问未答复，不推进回合（否则租金被逃掉）
       // 商店检测已在 reducer 顶部统一处理（152行），此处无需重复
       result = nextTurn(s)
       break
@@ -535,13 +542,16 @@ export function gameReducer(state, action) {
       // 金额归一（拒绝负数：负数金额在接受阶段会被跳过，等于无效条款）
       const offerMoney = Math.max(0, Math.floor(action.offer?.money || 0))
       const requestMoney = Math.max(0, Math.floor(action.request?.money || 0))
+      // 地块列表去重（重复 id 会导致资产虚增/破产变卖重复计款）
+      const offerLands = [...new Set(action.offer?.lands || [])]
+      const requestLands = [...new Set(action.request?.lands || [])]
       // 校验提供的资产是否真的属于发起方
       let invalid = false
-      for (const id of action.offer?.lands || []) {
+      for (const id of offerLands) {
         if (!p.properties.includes(id)) { s.log.push('交易失败：你不拥有提供的一块地'); invalid = true; break }
       }
       if (invalid) break
-      for (const id of action.request?.lands || []) {
+      for (const id of requestLands) {
         if (!target.properties.includes(id)) { s.log.push('交易失败：对方不拥有你要的一块地'); invalid = true; break }
       }
       if (invalid) break
@@ -551,8 +561,8 @@ export function gameReducer(state, action) {
         kind: 'trade',
         from: p.id,
         to: target.id,
-        offer: { lands: [...(action.offer?.lands || [])], money: offerMoney },
-        request: { lands: [...(action.request?.lands || [])], money: requestMoney },
+        offer: { lands: [...offerLands], money: offerMoney },
+        request: { lands: [...requestLands], money: requestMoney },
       }
       s.log.push(`🤝 ${p.name} 向 ${target.name} 发起了交易提案`)
       break
@@ -583,14 +593,18 @@ export function gameReducer(state, action) {
         s.log.push('❌ 交易条件已变化（等待期间资产变动），交易取消')
         break
       }
-      // 执行交换：地产
+      // 执行交换：地产（抵押标记随地块转移给受让方，否则银行抵押款凭空蒸发）
       for (const id of offerLands) {
         fromP.properties = fromP.properties.filter((i) => i !== id)
         toP.properties.push(id)
         const lv = fromP.levels[id] ?? 0
         delete fromP.levels[id]
         toP.levels[id] = lv
-        delete fromP.mortgaged?.[id]
+        if (fromP.mortgaged?.[id]) {
+          delete fromP.mortgaged[id]
+          toP.mortgaged = toP.mortgaged || {}
+          toP.mortgaged[id] = true
+        }
       }
       for (const id of requestLands) {
         toP.properties = toP.properties.filter((i) => i !== id)
@@ -598,7 +612,11 @@ export function gameReducer(state, action) {
         const lv = toP.levels[id] ?? 0
         delete toP.levels[id]
         fromP.levels[id] = lv
-        delete toP.mortgaged?.[id]
+        if (toP.mortgaged?.[id]) {
+          delete toP.mortgaged[id]
+          fromP.mortgaged = fromP.mortgaged || {}
+          fromP.mortgaged[id] = true
+        }
       }
       // 执行交换：现金
       if (offerMoney > 0) {
@@ -625,6 +643,8 @@ export function gameReducer(state, action) {
     case 'TRAVEL_METRO': {
       // 走格/分岔/拍卖中途不能乘（防止清掉 fork pending 造成 phase 错乱）
       if (s.phase === 'step' || s.phase === 'fork' || s.phase === 'auction') break
+      // 有免租/购买等其他挂起时不能乘（乘离会清掉 pending，逃掉租金/购买）
+      if (s.pending && s.pending.kind !== 'metro') break
       // 只要当前玩家站在轻轨站即可乘（详情卡入口不依赖 pending；p 为当前玩家）
       if (!isMetro(TILES[p.pos])) break
       const target = TILES[action.targetTileId]
@@ -681,9 +701,12 @@ export function gameReducer(state, action) {
       break
     }
 
-    // 奖金提示弹窗：关闭
+    // 奖金提示弹窗：关闭（若期间暂存了买地/免租等挂起，恢复之）
     case 'BONUS_INFO_CLOSE': {
-      if (s.pending?.kind === 'bonus_info') s.pending = null
+      if (s.pending?.kind === 'bonus_info') {
+        s.pending = s._bonusDeferred ?? null
+        s._bonusDeferred = null
+      }
       break
     }
 
@@ -722,7 +745,7 @@ export function gameReducer(state, action) {
       if (s.phase === 'step' || s.phase === 'fork' || s.phase === 'auction') break
       const amount = Math.max(0, Math.floor(action.amount || 0))
       if (amount <= 0) break
-      const limit = loanLimit(p, totalAssets(p))
+      const limit = loanLimit(p, totalAssets(p, s.stockRuntime))
       if (limit <= 0) { s.log.push(`${p.name} 无可贷额度`); break }
       const actual = Math.min(amount, limit)
       takeLoan(s, p, actual)
@@ -849,10 +872,11 @@ export function gameReducer(state, action) {
       // 出价归一：非数字/负数一律按 0 处理（防 NaN 混进 bids）
       const amount = Math.max(0, Math.floor(Number(action.amount) || 0))
       if (amount > 0 && bidder.money < amount) {
-        ap.bids[bidder.id] = 0
-      } else {
-        ap.bids[bidder.id] = amount
+        // 现金不足：忽略本次出价（不静默记为放弃，玩家可重新出价；不点名防盲拍信息泄露）
+        s.log.push('❌ 出价超出现金，未生效，请重新出价')
+        break
       }
+      ap.bids[bidder.id] = amount
       // 盲拍：出价阶段不记任何日志，防止从顺序推断出价者（揭晓阶段才汇总）
       // 推进到下一个存活玩家
       let ni = ap.turn
@@ -1086,8 +1110,12 @@ export function gameReducer(state, action) {
   if (result.log.length > MAX_LOG) {
     result.log.splice(0, result.log.length - MAX_LOG)
   }
-  // 奖金领取后弹出提示弹窗（在落地结算之后，覆盖购买/商店等弹窗）
+  // 对局结束：清掉残留 pending（如 maxTurns 触发时遗留的拍卖/询问弹窗）
+  if (result.status === 'finished') result.pending = null
+  // 奖金领取后弹出提示弹窗（钱已在落地时发放）；若落地还产生了买地/免租等挂起，
+  // 先暂存，关闭奖金弹窗后恢复，不再永久吞掉
   if (result._claimedBonus && result.status === 'playing') {
+    result._bonusDeferred = result.pending ?? null
     result.pending = { kind: 'bonus_info', ...result._claimedBonus }
     result._claimedBonus = null
   }

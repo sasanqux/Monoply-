@@ -1,9 +1,10 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onBeforeUnmount } from 'vue'
 import ComicIcon from './ComicIcon.vue'
 import {
   TILES, GROUPS, SHOPS, isPropertyTile, isMetro,
   getRent, isGroupComplete, groupTiles, groupRequired, upgradeCost,
+  isMortgaged,
   METRO_FEE,
 } from '../game/index.js'
 
@@ -76,10 +77,16 @@ const eventDesc = computed(() => {
 const canUpgrade = computed(() => {
   const t = tile.value
   if (!isPropertyTile(t) || !owner.value) return false
-  if (owner.value.id !== props.state.players[props.state.turnIndex].id) return false
-  if (props.state.players[props.state.turnIndex].isAI) return false
+  const cur = props.state.players[props.state.turnIndex]
+  if (owner.value.id !== cur.id) return false
+  if (cur.isAI) return false
   if (isMetro(t) && !t.upgradable) return false
-  return level.value < 3
+  if (level.value >= 3) return false
+  // 抵押中的地不能升级（与 reducer 的 canUpgrade 一致）
+  if (isMortgaged(cur, t.id)) return false
+  // 必须本回合踩在该地块上才能升级
+  if (!cur.upgradableTiles || !cur.upgradableTiles.includes(t.id)) return false
+  return true
 })
 
 // 乘轻轨：当前玩家是否正站在这格（是 → 可乘）
@@ -99,6 +106,7 @@ function onMetroClick() {
   clearTimeout(hintTimer)
   hintTimer = setTimeout(() => { hint.value = '' }, 2200)
 }
+onBeforeUnmount(() => { clearTimeout(hintTimer) })
 </script>
 
 <template>
@@ -332,5 +340,8 @@ function onMetroClick() {
   margin-top: 8px;
   padding-top: 8px;
   border-top: 3px solid var(--ink);
+}
+@media (max-width: 768px) {
+  .info { max-width: calc(100vw - 16px) !important; }
 }
 </style>

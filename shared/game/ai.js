@@ -57,14 +57,14 @@ export function aiDecide(state, playerId) {
     const tp = state.pending
     const fromP = state.players.find((p) => p.id === tp.from)
     if (!fromP) return { type: 'TRADE_REJECT' }
-    // 计算给出的净值
+    // 计算对方给 AI 的净值（offer = 发起方提供给 AI 的资产）
     let offerVal = tp.offer.money || 0
     for (const id of tp.offer.lands || []) offerVal += TILES[id]?.price ?? 0
-    // 计算得到的净值
+    // 计算 AI 要付出的净值（request = AI 给对方的资产）
     let requestVal = tp.request.money || 0
     for (const id of tp.request.lands || []) requestVal += TILES[id]?.price ?? 0
-    // AI 接受条件：得到的 >= 给出的，且差距不太离谱
-    if (requestVal >= offerVal && requestVal > 0) {
+    // AI 接受条件：得到的 >= 给出的（offer 是 AI 收到的，方向不能反，否则会被亏本交易掏空）
+    if (offerVal >= requestVal && offerVal > 0) {
       return { type: 'TRADE_ACCEPT' }
     }
     return { type: 'TRADE_REJECT' }
@@ -105,6 +105,10 @@ export function aiDecide(state, playerId) {
     // 0. 卡片商店：AI 不买卡，路过直接关闭（pending 会清理，回合继续）
     if (state.pending?.kind === 'shop') {
       return { type: 'SHOP_CLOSE' }
+    }
+    // 0.5 免租卡询问：超时/托管代打时正常付费（SHIELD_SKIP = 不用卡、照付租金）
+    if (state.pending?.kind === 'shield') {
+      return { type: 'SHIELD_SKIP' }
     }
     // 1. 买地/买桥（留安全垫）
     if (state.pending?.kind === 'buy') {
@@ -193,6 +197,11 @@ export function aiDecide(state, playerId) {
         const codes = Object.keys(STOCKS)
         const code = codes[Math.floor(Math.random() * codes.length)]
         return { type: 'USE_CARD', cardId: instant.id, target: { code } }
+      }
+      // 抢夺卡现在需要指定目标玩家（cardTargetKind='player'）
+      if (instant.type === 'steal') {
+        const t = enemyWithCard(state, cur)
+        if (t != null) return { type: 'USE_CARD', cardId: instant.id, target: { playerId: t } }
       }
       return { type: 'USE_CARD', cardId: instant.id }
     }

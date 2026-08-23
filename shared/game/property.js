@@ -23,15 +23,15 @@ export function getRent(state, tile, level = 0) {
   let rent = baseRent(tile, level)
   const owner = state.players.find((p) => p.alive && p.properties.includes(tile.id))
   if (tile.group && ownerGroupComplete(state, tile)) {
-    rent *= 1.5
+    rent = Math.round(rent * 1.5) // 取整，避免 375×1.5 之类产生小数钱
   } else if (owner && typeGroupComplete(tile, owner)) {
-    rent *= 1.5
+    rent = Math.round(rent * 1.5)
   }
   // 八中主宰租金加成
   if (owner && owner._rentBonus) {
     rent += owner._rentBonus
   }
-  return rent
+  return Math.round(rent)
 }
 
 // 该格的主人是否达成地块组合（拥有达到阈值）
@@ -42,12 +42,13 @@ function ownerGroupComplete(state, tile) {
 }
 
 // 类型组合：景区之王（集齐所有景点 scenic）/ 轻轨大亨（集齐所有轻轨站 station）
+// 与地块组合一致：抵押地不计入组合（否则抵押无惩罚还能白拿加成）
 export function typeGroupComplete(tile, owner) {
   if (tile.type === 'scenic') {
-    return TILES.filter((t) => t && !t.removed && t.type === 'scenic').every((t) => owner.properties.includes(t.id))
+    return TILES.filter((t) => t && !t.removed && t.type === 'scenic').every((t) => owner.properties.includes(t.id) && !isMortgaged(owner, t.id))
   }
   if (tile.type === 'station') {
-    return TILES.filter((t) => t && t.type === 'station').every((t) => owner.properties.includes(t.id))
+    return TILES.filter((t) => t && t.type === 'station').every((t) => owner.properties.includes(t.id) && !isMortgaged(owner, t.id))
   }
   return false
 }
@@ -93,8 +94,8 @@ export function canUpgrade(state, player, tile) {
   return true
 }
 
-// 总资产 = 现金 + 地产估值（价格 + 开店投入，抵押地按50%估值）
-export function totalAssets(player) {
+// 总资产 = 现金 + 地产估值（价格 + 开店投入，抵押地按50%估值）+ 股票市值
+export function totalAssets(player, stockRuntime) {
   let total = player.money
   for (const idx of player.properties) {
     const tile = TILES[idx]
@@ -105,6 +106,10 @@ export function totalAssets(player) {
     } else {
       total += tile.price + Math.round(tile.price * UPGRADE_COST_RATIO * level)
     }
+  }
+  // 股票市值（终局排名/贷款额度/资产曲线都应计入）
+  for (const [code, shares] of Object.entries(player.stockHoldings || {})) {
+    if (shares > 0) total += Math.floor(shares * (stockRuntime?.[code]?.current ?? 0))
   }
   // 减去未还贷款（待还总额含利息）
   total -= player.loanRepay || 0

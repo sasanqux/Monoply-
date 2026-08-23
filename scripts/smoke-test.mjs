@@ -844,7 +844,7 @@ console.log('▶ 每回合限1张卡 + 路障触发')
   ]
   s.players[1].hand = [{ id: 'p2c1', type: 'shield', name: '免租卡', desc: '', icon: '' }] // p2 有手牌供抢夺
   s.phase = 'landed'
-  s = gameReducer(s, { type: 'USE_CARD', cardId: 'u1' })
+  s = gameReducer(s, { type: 'USE_CARD', cardId: 'u1', target: { playerId: 'p2' } })
   // 抢夺卡：消耗 u1，从 p2 抢 1 张 → 手牌仍为 2（u2 + 抢来的 p2c1）
   check('第1张卡使用成功（抢夺卡消耗1抢1）', s.players[0].hand.length === 2 && s.players[0].hand.some(c => c.id === 'u2'))
   const logLen = s.log.length
@@ -955,7 +955,7 @@ console.log('▶ 彩票系统')
 
   // 初始彩票状态
   let s = makeState([{id:'p1',name:'A',isAI:true},{id:'p2',name:'B',isAI:true}], 40)
-  check('初始奖池 ¥10000', s.lottery.pool === 10000)
+  check('初始奖池 ¥5000', s.lottery.pool === 5000)
   check('初始 phase=buying', s.lottery.phase === 'buying')
 
   // 购买彩票
@@ -964,13 +964,13 @@ console.log('▶ 彩票系统')
   s.phase = 'landed'
   s = gameReducer(s, { type: 'BUY_TICKET', number: 42 })
   check('购买彩票扣 ¥500', s.players[0].money === 4500)
-  check('奖池增加 ¥500（10000→10500）', s.lottery.pool === 10500)
+  check('奖池增加 ¥500（5000→5500）', s.lottery.pool === 5500)
   check('记录已选数字', s.lottery.pickedNumbers['p1']?.includes(42))
 
   // 重复数字不能选：p1 已选 42，再选 42 应被拒（但 lotteryBoughtTurn 已被第一次成功设为 true）
   // 注意：这里不重置 lotteryBoughtTurn，直接试重复数字 → 数字检查先失败，不会碰 lotteryBoughtTurn
   const res2 = gameReducer(s, { type: 'BUY_TICKET', number: 42 })
-  check('重复数字被拒绝（奖池不变）', res2.lottery.pool === 10500)
+  check('重复数字被拒绝（奖池不变）', res2.lottery.pool === 5500)
 
   // 本回合不能买第二次：p1 已成功买过 42 → lotteryBoughtTurn=true → 买 7 被拒
   s.pending = { kind: 'lottery', tileId: 45 }
@@ -989,7 +989,7 @@ console.log('▶ 彩票系统')
   s.phase = 'landed'
   s = gameReducer(s, { type: 'BUY_TICKETS', numbers: [10, 20, 30] })
   check('批量购买 3 张扣 ¥1500', s.players[0].money === 3500)
-  check('奖池增加 ¥1500（10000→11500）', s.lottery.pool === 11500)
+  check('奖池增加 ¥1500（5000→6500）', s.lottery.pool === 6500)
   check('记录 3 个号码', s.lottery.pickedNumbers['p1']?.length === 3)
   check('批量购买后本回合不能再买', s.lotteryBoughtTurn === true)
 
@@ -1011,7 +1011,7 @@ console.log('▶ 彩票系统')
   s.pending = { kind: 'lottery', tileId: 45 }
   s.phase = 'landed'
   s = gameReducer(s, { type: 'BUY_TICKET', number: 50 })
-  check('p1 购买彩票成功，奖池 10500', s.lottery.pool === 10500)
+  check('p1 购买彩票成功，奖池 5500', s.lottery.pool === 5500)
   s = gameReducer(s, { type: 'LOTTERY_CLOSE' })
   check('p1 选了数字 50', s.lottery.pickedNumbers['p1']?.[0] === 50)
 
@@ -1054,7 +1054,7 @@ console.log('▶ 股票系统')
 
   // 持仓上限5家
   s = makeState([{id:'p1',name:'A',isAI:true},{id:'p2',name:'B',isAI:true}], 40)
-  s.players[0].money = 100000
+  s.players[0].money = 5000
   s.phase = 'landed'
   s = gameReducer(s, { type: 'STOCK_BUY', code: 'cqbj', shares: 10 })
   s = gameReducer(s, { type: 'STOCK_BUY', code: 'cqca', shares: 10 })
@@ -1289,7 +1289,7 @@ console.log('\n▶ 银行贷款系统')
   check('到期混合还款：贷款清零', s.players[0].loan === 0 && s.players[0].loanRepay === 0)
   check('到期混合还款：剩余现金正确', s.players[0].money === 2000 + 5500 - 6000)
 
-  // 到期混合还款（卖光+现金仍不够 → 违约挂账）
+  // 到期混合还款（卖光+现金仍不够 → 违约破产，不再做"僵尸违约者"）
   s = makeState([{ id: 'p1', name: 'A', isAI: false }], 40, 20000)
   s.players[0].loan = 5000
   s.players[0].loanRepay = 6000
@@ -1300,8 +1300,8 @@ console.log('\n▶ 银行贷款系统')
   s.round = 3
   s.phase = 'roll'
   s = gameReducer(s, { type: 'ROLL_DICE' })
-  check('到期违约：剩余挂账', s.players[0].loanRepay === 6000 - 1000 - 500)
-  check('到期违约：现金归零', s.players[0].money === 0)
+  check('到期违约：欠款挂账后判破产', s.players[0].bankrupt === true && s.players[0].alive === false)
+  check('到期违约：资产被清空', s.players[0].properties.length === 0)
 
   // 贷款期间不能移动中借款（阶段保护）
   s = makeState([{ id: 'p1', name: 'A', isAI: false }], 40, 20000)
@@ -1330,9 +1330,11 @@ console.log('▶ 随机奖金系统')
   check('弹窗显示金额', s.pending?.amount === 2500)
   check('弹窗显示下一个位置', s.pending?.nextTileId === s.bonusTile.id)
   check('奖金刷新到新位置', s.bonusTile.id !== oldBonusId && s.bonusTile.id !== 0)
-  // 关闭弹窗
+  // 关闭弹窗（若期间暂存了买地挂起，应恢复买地机会而非吞掉）
   s = gameReducer(s, { type: 'BONUS_INFO_CLOSE' })
-  check('关闭奖金弹窗', s.pending === null)
+  check('关闭奖金弹窗后恢复买地机会', s.pending?.kind === 'buy')
+  s = gameReducer(s, { type: 'SKIP_BUY' })
+  check('跳过买地后 pending 清空', s.pending === null)
 }
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`)

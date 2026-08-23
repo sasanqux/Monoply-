@@ -1,4 +1,25 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+
+# Logs
 *.log
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Windows artifacts
+$null
+
+# Claude / AI tool config
+.claude/
+
+# Android build outputs (Capacitor)
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/
+android/local.properties

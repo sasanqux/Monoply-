@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import ComicIcon from './ComicIcon.vue'
-import { totalAssets } from '../game/index.js'
+import { totalAssets, TILES, stockPortfolioValue } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
@@ -11,7 +11,15 @@ const emit = defineEmits(['again'])
 const ranking = computed(() =>
   [...props.state.players]
     .sort((a, b) => totalAssets(b) - totalAssets(a))
-    .map((p, i) => ({ ...p, rank: i + 1, assets: totalAssets(p) }))
+    .map((p, i) => ({
+      ...p,
+      rank: i + 1,
+      assets: totalAssets(p),
+      // 资产明细：现金 / 地产（按地价合计）/ 股票持仓市值
+      cash: p.money,
+      land: p.properties.reduce((s, id) => s + (TILES[id]?.price || 0), 0),
+      stock: stockPortfolioValue(p, props.state.stockRuntime),
+    }))
 )
 
 const winner = computed(() => props.state.players.find((p) => p.id === props.state.winnerId))
@@ -30,10 +38,17 @@ const winner = computed(() => props.state.players.find((p) => p.id === props.sta
 
       <ol class="rank">
         <li v-for="r in ranking" :key="r.id" class="rank__row" :class="{ 'rank__row--win': r.id === winner?.id }">
-          <span class="rank__no">{{ r.rank }}</span>
-          <i class="rank__dot" :style="{ background: r.color }"></i>
-          <span class="rank__name">{{ r.name }}<em v-if="r.isAI">AI</em></span>
-          <span class="rank__assets">总资产 ¥{{ r.assets }}</span>
+          <div class="rank__line">
+            <span class="rank__no">{{ r.rank }}</span>
+            <i class="rank__dot" :style="{ background: r.color }"></i>
+            <span class="rank__name">{{ r.name }}<em v-if="r.isAI">AI</em></span>
+            <span class="rank__assets">总资产 ¥{{ r.assets }}</span>
+          </div>
+          <div class="rank__detail">
+            <span>现金 ¥{{ r.cash }}</span>
+            <span>地产 ¥{{ r.land }}</span>
+            <span>股票 ¥{{ r.stock }}</span>
+          </div>
         </li>
       </ol>
 
@@ -52,13 +67,15 @@ const winner = computed(() => props.state.players.find((p) => p.id === props.sta
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 50;
+  z-index: 90; /* 高于手牌/详情/事件弹窗（70/80），结算不被盖住 */
   padding: 16px;
 }
 
 .result {
   width: 100%;
   max-width: 420px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -89,12 +106,29 @@ const winner = computed(() => props.state.players.find((p) => p.id === props.sta
 
 .rank__row {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 4px;
   padding: 8px;
   border: 2px solid var(--ink);
   border-radius: 8px;
   background: #fff;
+}
+
+.rank__line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rank__detail {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+  padding-left: 30px;
 }
 
 .rank__row--win {
@@ -143,5 +177,11 @@ const winner = computed(() => props.state.players.find((p) => p.id === props.sta
   display: flex;
   justify-content: flex-end;
   margin-top: 4px;
+}
+@media (max-width: 768px) {
+  .result {
+    max-width: calc(100vw - 16px) !important;
+    padding: 16px !important;
+  }
 }
 </style>

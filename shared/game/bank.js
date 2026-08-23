@@ -61,7 +61,7 @@ export function repayLoan(state, player, amount) {
   state.log.push(`💳 ${player.name} 还款 ¥${actual}（剩余待还 ¥${player.loanRepay}）`)
 }
 
-// 强制变卖：从最低价地产开始卖，直到凑够金额；返回 { enough, raised }
+// 强制变现：从最低价地产开始卖，直到凑够金额；返回 { enough, raised }
 export function forceSellForLoan(state, player, amount) {
   let raised = 0
   const sorted = [...player.properties]
@@ -82,6 +82,22 @@ export function forceSellForLoan(state, player, amount) {
   return { enough: raised >= amount, raised }
 }
 
+// 强制变现全部股票（卖出无手续费）：贷款违约/破产自救时先于地产卖出
+export function forceSellStocks(state, player) {
+  let raised = 0
+  for (const code of Object.keys(player.stockHoldings || {})) {
+    const shares = player.stockHoldings[code] || 0
+    if (shares <= 0) { delete player.stockHoldings[code]; continue }
+    const rt = state.stockRuntime?.[code]
+    const gain = Math.floor(shares * (rt?.current ?? 0))
+    raised += gain
+    delete player.stockHoldings[code]
+    state.log.push(`🏦 ${player.name} 被迫卖出股票 ${rt?.name ?? code} ×${shares} 得 ¥${gain}`)
+  }
+  player.money += raised
+  return raised
+}
+
 // 贷款到期处理：能还就还，不能就强制变卖，再不够就破产
 export function processLoanDue(state, player) {
   const owed = player.loanRepay || 0
@@ -93,7 +109,13 @@ export function processLoanDue(state, player) {
     return true
   }
 
-  // 现金不够 → 强制变卖补差额
+  // 现金不够 → 先卖股票，再强制变卖地产补差额
+  forceSellStocks(state, player)
+  if (player.money >= owed) {
+    repayLoan(state, player, owed)
+    return true
+  }
+
   const shortfall = owed - player.money
   const { raised } = forceSellForLoan(state, player, shortfall)
 
@@ -105,11 +127,13 @@ export function processLoanDue(state, player) {
     return true
   }
 
-  // 卖光+现金仍不够 → 剩余挂账，标记违约
+  // 卖光+现金仍不够 → 现金记负数交由随后的 checkBankrupt 判破产（不再做"僵尸违约者"）；
+  // loanDue 清零防止之后每回合重复违约结算刷日志
   const remaining = owed - player.money
-  player.money = 0
+  player.money = -remaining
   player.loanRepay = remaining
   player.loan = remaining
-  state.log.push(`🏦 ${player.name} 变卖全部资产仍无法还清贷款（欠 ¥${remaining}），已违约！`)
+  player.loanDue = 0
+  state.log.push(`🏦 ${player.name} 变卖全部资产仍无法还清贷款（欠 ¥${remaining}），违约破产！`)
   return false
 }

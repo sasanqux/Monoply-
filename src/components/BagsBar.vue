@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import ComicIcon from './ComicIcon.vue'
 
 const props = defineProps({
@@ -8,11 +8,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['open', 'openEncyclopedia', 'openLoan'])
 
-const entries = [
-  { mode: 'cards', label: '卡牌', icon: 'card', count: () => props.me?.hand?.length ?? 0 },
-  { mode: 'lands', label: '地产', icon: 'home', count: () => props.me?.properties?.length ?? 0 },
-  { mode: 'stocks', label: '股票', icon: 'stock', count: () => Object.keys(props.me?.stockHoldings || {}).filter(c => props.me.stockHoldings[c] > 0).length },
-]
+const showTimers = ref(false)
 
 function openEncy() {
   emit('openEncyclopedia')
@@ -91,25 +87,36 @@ const hasTimers = computed(() => {
     (auctionCountdown.value !== null) ||
     (cardGiftCountdown.value !== null)
 })
+
+const stockCount = computed(() => {
+  if (!props.me?.stockHoldings) return 0
+  return Object.keys(props.me.stockHoldings).filter(c => props.me.stockHoldings[c] > 0).length
+})
 </script>
 
 <template>
   <div class="bags">
-    <!-- 左侧：功能按钮 -->
+    <!-- 功能按钮 -->
     <div class="bags__btns">
-      <button
-        v-for="e in entries"
-        :key="e.mode"
-        class="btn-comic btn-comic--sm bags__btn"
-        @click="emit('open', e.mode)"
-      >
-        <ComicIcon :name="e.icon" :size="18" /> {{ e.label }} <b class="bags__cnt">{{ e.count() }}</b>
+      <!-- 卡牌 -->
+      <button class="btn-comic btn-comic--sm bags__btn" @click="emit('open', 'cards')">
+        <ComicIcon name="card" :size="18" /> <span class="bags__btn-label">卡牌</span> <b class="bags__cnt">{{ props.me?.hand?.length ?? 0 }}</b>
       </button>
-      <button class="btn-comic btn-comic--sm bags__btn" @click="openEncy">
-        <ComicIcon name="book" :size="18" /> 百科
-      </button>
+      <!-- 银行（卡牌右边） -->
       <button class="btn-comic btn-comic--sm bags__btn" @click="emit('openLoan')">
-        <ComicIcon name="bank" :size="18" /> 银行<span v-if="props.me?.loanRepay > 0" class="bags__cnt">¥{{ props.me.loanRepay }}</span>
+        <ComicIcon name="bank" :size="18" /> <span class="bags__btn-label">银行</span><span v-if="props.me?.loanRepay > 0" class="bags__cnt">¥{{ props.me.loanRepay }}</span>
+      </button>
+      <!-- 地产 -->
+      <button class="btn-comic btn-comic--sm bags__btn" @click="emit('open', 'lands')">
+        <ComicIcon name="home" :size="18" /> <span class="bags__btn-label">地产</span> <b class="bags__cnt">{{ props.me?.properties?.length ?? 0 }}</b>
+      </button>
+      <!-- 股票 -->
+      <button class="btn-comic btn-comic--sm bags__btn" @click="emit('open', 'stocks')">
+        <ComicIcon name="stock" :size="18" /> <span class="bags__btn-label">股票</span> <b class="bags__cnt">{{ stockCount }}</b>
+      </button>
+      <!-- 百科 -->
+      <button class="btn-comic btn-comic--sm bags__btn" @click="openEncy">
+        <ComicIcon name="book" :size="18" /> <span class="bags__btn-label">百科</span>
       </button>
     </div>
 
@@ -121,8 +128,13 @@ const hasTimers = computed(() => {
           <span class="bags__turn-player" :style="{ '--pc': currentPlayer?.color }">
             <i class="bags__turn-dot"></i>{{ currentPlayer?.name }}
           </span>
+          <!-- 手机端：倒计时展开按钮 -->
+          <button v-if="hasTimers" class="bags__timer-toggle" @click="showTimers = !showTimers">
+            ⏱{{ showTimers ? '▲' : '▼' }}
+          </button>
         </div>
-        <div v-if="hasTimers" class="bags__timers">
+        <!-- 倒计时：桌面端始终显示，手机端点击展开 -->
+        <div v-if="hasTimers" class="bags__timers" :class="{ 'bags__timers--open': showTimers }">
           <span v-if="lotteryCountdown !== null" class="bags__chip" title="距离彩票开奖">
             彩票 <b>{{ lotteryCountdown }}</b>
           </span>
@@ -165,7 +177,6 @@ const hasTimers = computed(() => {
   flex-wrap: wrap;
 }
 
-/* 左侧按钮组 */
 .bags__btns {
   display: flex;
   gap: 10px;
@@ -188,7 +199,6 @@ const hasTimers = computed(() => {
   line-height: 1.5;
 }
 
-/* 右侧状态卡片 */
 .bags__status {
   flex-shrink: 0;
 }
@@ -237,6 +247,21 @@ const hasTimers = computed(() => {
   flex-shrink: 0;
 }
 
+/* 倒计时展开按钮：桌面端隐藏 */
+.bags__timer-toggle {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  border: 2px solid var(--ink);
+  border-radius: 5px;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
 /* 倒计时 chips */
 .bags__timers {
   display: flex;
@@ -271,4 +296,38 @@ const hasTimers = computed(() => {
 .bags__chip--hospital { background: #fecaca; }
 .bags__chip--auction { background: #ddd6fe; }
 .bags__chip--gift { background: #bbf7d0; }
+
+/* ===== 手机端 ===== */
+@media (max-width: 768px) {
+  .bags {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 4px;
+  }
+  .bags__btns {
+    flex-wrap: wrap;
+    gap: 3px;
+    flex: 1;
+    min-width: 0;
+  }
+  .bags__btn {
+    flex-shrink: 0;
+    font-size: 10px;
+    padding: 3px 6px;
+  }
+  .bags__btn-label { display: none; }
+  .bags__status { flex-shrink: 0; }
+  .bags__status-card {
+    padding: 4px 8px;
+    gap: 2px;
+  }
+  .bags__round-badge { font-size: 10px; padding: 2px 6px; }
+  .bags__turn-player { font-size: 11px; }
+  /* 倒计时展开按钮：手机端显示 */
+  .bags__timer-toggle { display: inline-flex; }
+  /* 倒计时：手机端默认隐藏，展开时显示 */
+  .bags__timers { display: none; }
+  .bags__timers--open { display: flex; }
+  .bags__chip { font-size: 9px; padding: 1px 4px; }
+}
 </style>

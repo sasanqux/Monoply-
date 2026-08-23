@@ -1,5 +1,5 @@
-<script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+﻿<script setup>
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import SetupPanel from './components/SetupPanel.vue'
 import Board from './components/Board.vue'
 import ActionPanel from './components/ActionPanel.vue'
@@ -13,8 +13,11 @@ import DiceThrow from './components/DiceThrow.vue'
 import ComicIcon from './components/ComicIcon.vue'
 import DebugPanel from './components/DebugPanel.vue'
 import TradeModal from './components/TradeModal.vue'
-import { createInitialState, gameReducer, aiDecide, currentPlayer, TILES, isPropertyTile, cardTargetKind, VEHICLES, CARDS, STOCKS, GODS, loanLimit, totalAssets } from './game/index.js'
+import GameMenu from './components/GameMenu.vue'
+import { createInitialState, gameReducer, aiDecide, currentPlayer, TILES, isPropertyTile, cardTargetKind, VEHICLES, CARDS, STOCKS, GODS, loanLimit, totalAssets, tilePosition } from './game/index.js'
 import { connect, disconnect, getSocket } from './net/socket.js'
+import { initBackButton } from './composables/useBackButton.js'
+import { sfx, vibrate } from './composables/useSound.js'
 import Home from './components/Home.vue'
 import ModeSelect from './components/ModeSelect.vue'
 import Lobby from './components/Lobby.vue'
@@ -44,6 +47,7 @@ const lobbyPlayers = ref([]) // 玩家列表（供踢人用）
 const gameLog = ref([]) // 游戏日志
 const playerName = ref('') // 玩家昵称（用于断线重连）
 const playerColor = ref('') // 玩家颜色（用于断线重连）
+const roomPassword = ref('') // 房间密码（密码房断线重连用；Lobby enter 事件若带上则存）
 
 // localStorage 存房间信息（用于断线重连）
 const STORAGE_KEY = 'monopoly_game'
@@ -53,6 +57,7 @@ function saveGameInfo() {
       roomId: currentRoomId.value,
       playerName: playerName.value,
       color: playerColor.value,
+      password: roomPassword.value || undefined, // 密码房掉线重连必需
       playerId: myPlayerId.value,
       savedAt: Date.now(),
     }))
@@ -76,27 +81,110 @@ function clearGameInfo() {
   localStorage.removeItem(STORAGE_KEY)
 }
 
-// 页面加载时检查是否有进行中的游戏，自动重连（只尝试一次，后续重连靠 onNetReconnect）
+// 冷启动不自动跳进对局：存档保留（供 Home 的"返回游戏"按钮读取），手动重连走 onRejoinGame
+
+// 服务器拒绝/被踢等轻提示：顶部小气泡，2 秒自动清除（替代 alert）
+const netNotice = ref('')
+let netNoticeTimer = null
+function showNetNotice(msg) {
+  netNotice.value = msg || '操作失败，请重试'
+  clearTimeout(netNoticeTimer)
+  netNoticeTimer = setTimeout(() => { netNotice.value = '' }, 2000)
+}
+
+// Android 返回键：① 关闭弹窗/选择模式 → ② 回上级页面 → ③ 双击退出
+const backHint = ref('') // "再按一次退出"提示（App 端）
+let lastBackAt = 0
+let backHintTimer = null
 onMounted(() => {
-  const info = loadGameInfo()
-  if (!info) return
-  const s = getSocket() || connect()
-  const tryRejoin = () => {
-    doRejoin(s, info)
-    s.off('connect', tryRejoin) // 首次重连后摘掉，避免每次重连都重复触发 onEnterNetGame
-  }
-  if (s.connected) {
-    tryRejoin()
-  } else {
-    s.on('connect', tryRejoin)
-  }
+  initBackButton(() => {
+    // ① 逐层关闭本地可关闭的弹窗/选择模式
+    if (selecting.value) { cancelSelect(); return true }
+    if (myModal.value) { myModal.value = null; return true }
+    if (infoTile.value) { infoTile.value = null; return true }
+    if (tradeTarget.value) { tradeTarget.value = null; return true }
+    if (showEncyclopedia.value) { showEncyclopedia.value = false; return true }
+    if (showLoan.value) { showLoan.value = false; return true }
+    // ② 阻断性弹窗打开时：消费返回键但不退出（这些弹窗不能被返回键误关/误退游戏）
+    if (
+      showForkCard.value || showShop.value || showCheckin.value ||
+      showAuction.value || showAuctionReveal.value || showLottery.value ||
+      showGodPopup.value || showChancePopup.value || showShieldPopup.value ||
+      showLotteryDraw.value || showBankruptPopup.value || showBonusInfo.value ||
+      (netMode.value && state.value?.pending?.kind === 'trade') || // 联机交易提案弹窗
+      isOrderPhase.value || showOrderResult.value ||
+      state.value?.status === 'finished'
+    ) return true
+    // ③ 非首页视图回首页（game 例外：对局中防误触，走双击退出）
+    if (view.value !== 'home' && view.value !== 'game') { view.value = 'home'; return true }
+    // ④ 双击退出
+    const now = Date.now()
+    if (now - lastBackAt < 2000) return false
+    lastBackAt = now
+    backHint.value = '再按一次退出游戏'
+    clearTimeout(backHintTimer)
+    backHintTimer = setTimeout(() => { backHint.value = '' }, 2000)
+    return true
+  })
 })
+
+// ===== 棋盘自适应：JS 短边驱动（兜底旧 WebView 不支持容器查询单位 cqw/cqh 的机型） =====
+// 棋盘宽 = min(容器宽, 容器高÷0.85, 600)：窄屏受宽度限制、短屏受高度限制，任意屏比例完整显示
+const boardWrapEl = ref(null)
+let boardRO = null
+function fitBoard() {
+  const wrap = boardWrapEl.value
+  if (!wrap) return
+  const board = wrap.querySelector('.board')
+  if (!board || !wrap.clientWidth || !wrap.clientHeight) return
+  // 最小 240px 兜底：容器被极端挤压时棋盘仍可玩（不缩成 0/负数）
+  const ideal = Math.max(240, Math.min(wrap.clientWidth - 8, wrap.clientHeight / 0.85 - 8, 600))
+  board.style.width = ideal + 'px'
+  board.style.maxWidth = 'none'
+  board.style.height = 'auto'
+}
+watch([view, () => !!state.value], ([v, hasState]) => {
+  if (v === 'game' && hasState) {
+    nextTick(() => {
+      if (boardRO) boardRO.disconnect()
+      if (!boardWrapEl.value) return
+      if (typeof ResizeObserver !== 'undefined') {
+        boardRO = new ResizeObserver(fitBoard)
+        boardRO.observe(boardWrapEl.value)
+      }
+      fitBoard()
+    })
+  }
+}, { flush: 'post' })
+onBeforeUnmount(() => { boardRO?.disconnect() })
+
+// ===== 金钱变动飘字：diff 前后玩家现金，在棋盘该玩家位置弹 +¥/-¥ 大字（颜色=玩家色，2s） =====
+const moneyFxList = ref([])
+let fxSeq = 0
+function queueMoneyFx(prevState, newState) {
+  if (!prevState?.players || !newState?.players) return
+  for (const np of newState.players) {
+    const pp = prevState.players.find((p) => p.id === np.id)
+    if (!pp || pp.money === np.money) continue
+    const delta = np.money - pp.money
+    const pos = tilePosition(np.pos) || { x: 50, y: 50 }
+    const key = ++fxSeq
+    moneyFxList.value.push({ key, delta, x: pos.x, y: pos.y, color: np.color })
+    if (delta > 0) sfx.coin(); else sfx.pay()
+    setTimeout(() => {
+      const i = moneyFxList.value.findIndex((f) => f.key === key)
+      if (i >= 0) moneyFxList.value.splice(i, 1)
+    }, 2300)
+  }
+  if (moneyFxList.value.length > 12) moneyFxList.value.splice(0, moneyFxList.value.length - 12)
+}
 
 function doRejoin(s, info) {
   s.emit('joinRoom', {
     roomId: info.roomId,
     playerName: info.playerName,
     color: info.color,
+    password: info.password || undefined, // 密码房掉线重连必需
     playerId: info.playerId, // 优先按 playerId 匹配座位，不依赖可猜的昵称
   }, (res) => {
     if (res?.ok && res.rejoined) {
@@ -105,7 +193,12 @@ function doRejoin(s, info) {
       view.value = 'game'
       onEnterNetGame({ playerName: info.playerName, color: info.color, roomId: info.roomId })
     } else {
+      // 房间已不存在/对局结束：清存档并回首页（否则会卡在"正在同步对局…"）
       clearGameInfo()
+      if (view.value === 'game' && !state.value) {
+        view.value = 'home'
+        netMode.value = false
+      }
     }
   })
 }
@@ -129,17 +222,33 @@ function onRejoinGame(info) {
 
 // 联机中途断线重连：socket 重连后会拿到新 socketId，服务端已把旧座位标记为掉线托管；
 // 不重发 joinRoom 玩家会"幽灵冻结"（收不到任何状态）。这里在每次重连后自动找回座位。
+let rejoinRetryDone = false // 竞态重试只做一次，防重试风暴
 function onNetReconnect() {
   const s = getSocket()
   if (!s) return
   if (currentRoomId.value && myPlayerId.value) {
-    s.emit('joinRoom', {
-      roomId: currentRoomId.value,
-      playerName: playerName.value,
-      color: playerColor.value,
-      playerId: myPlayerId.value,
-    })
+    rejoinRetryDone = false
+    emitRejoin(s)
   }
+}
+function emitRejoin(s) {
+  s.emit('joinRoom', {
+    roomId: currentRoomId.value,
+    playerName: playerName.value,
+    color: playerColor.value,
+    password: roomPassword.value || undefined, // 密码房掉线重连必需
+    playerId: myPlayerId.value,
+  }, (res) => {
+    if (res?.ok) { rejoinRetryDone = false; return }
+    // 竞态窗口：服务端尚未把旧座位标记为掉线时会报"只能用掉线前的昵称"，延迟 3 秒重试一次（仅一次）
+    if (res?.error && String(res.error).includes('只能用掉线前的昵称') && !rejoinRetryDone) {
+      rejoinRetryDone = true
+      setTimeout(() => {
+        const sock = getSocket()
+        if (sock && currentRoomId.value && myPlayerId.value) emitRejoin(sock)
+      }, 3000)
+    }
+  })
 }
 
 // ===== 可拿取骰子 =====
@@ -177,9 +286,11 @@ function fastForward(rounds) {
   while (s.status === 'playing' && s.round < targetRound && guard++ < 8000) {
     let action
     if (s.phase === 'fork' && s.pending?.kind === 'fork') {
-      action = { type: 'CHOOSE_FORK', tileId: s.pending.chosen }
+      // 快跑中人类玩家的分岔也自动选：优先随机 options，无 options 用 chosen（不再发 chosen=null 空转）
+      const opts = s.pending.canPick && s.pending.options?.length ? s.pending.options : [s.pending.chosen]
+      action = { type: 'CHOOSE_FORK', tileId: opts[Math.floor(Math.random() * opts.length)] }
     } else if (s.phase === 'auction' && s.pending?.kind === 'auction') {
-      action = aiDecide(s, s.pending.turn) || { type: 'AUCTION_BID', raise: false }
+      action = aiDecide(s, s.players[s.pending.turn]?.id) || { type: 'AUCTION_BID', raise: false }
     } else {
       const cur = currentPlayer(s)
       if (!cur) break
@@ -223,6 +334,20 @@ function startGame(opts) {
   }
 }
 
+// 结算层"再来一局"：单机直接重开；联机不走 startGame（本地建房会静默失败），改为退房回首页重新建房
+function onPlayAgain() {
+  if (netMode.value) {
+    getSocket()?.emit('leaveRoom')
+    clearGameInfo()
+    currentRoomId.value = null
+    netMode.value = false
+    state.value = null
+    view.value = 'home'
+    return
+  }
+  startGame(lastOpts.value)
+}
+
 // 确保 socket 已连接（不重复 connect）
 function ensureSocket() {
   return connect()
@@ -232,19 +357,23 @@ function ensureSocket() {
 function onEnterNetGame(data) {
   netMode.value = true
   view.value = 'game'
+  rejoinRetryDone = false
   // 保存玩家信息用于断线重连
   if (data?.playerName) playerName.value = data.playerName
   if (data?.color) playerColor.value = data.color
+  if (data && 'password' in data) roomPassword.value = data.password || '' // Lobby enter 事件带密码时存下（密码房重连用）
   currentRoomId.value = data?.roomId || currentRoomId.value
   const s = getSocket()
   if (!s) { console.error('[onEnterNetGame] no socket!'); return }
-  // 清理旧监听避免重复
+  // 清理旧监听避免重复（on 过的所有事件都要 off，否则重复进对局会累积监听）
   s.off('gameState')
   s.off('pauseUpdate')
   s.off('timerUpdate')
   s.off('logUpdate')
   s.off('kicked')
   s.off('roomUpdate')
+  s.off('aiTakeoverUpdate')
+  s.off('ping_check')
   s.off('connect', onNetReconnect)
   s.on('gameState', ({ state: gs, myPlayerId: pid, isHost: host }) => {
     if (pid) myPlayerId.value = pid
@@ -270,9 +399,15 @@ function onEnterNetGame(data) {
   s.on('logUpdate', (logs) => {
     gameLog.value = logs
   })
-  // 被房主踢出：弹提示并退回选模式页
+  // 被房主踢出：顶部提示并退回选模式页（不用 alert，并补齐本地状态清理）
   s.on('kicked', () => {
-    alert('你已被房主移出房间')
+    showNetNotice('你已被房主移出房间')
+    clearGameInfo()
+    selecting.value = null
+    myModal.value = null
+    infoTile.value = null
+    tradeTarget.value = null
+    showLoan.value = false
     netMode.value = false
     currentRoomId.value = null
     state.value = null
@@ -301,8 +436,13 @@ function onEnterNetGame(data) {
 }
 
 // 联机：应用服务器广播的 state，并用 walkPath 差量驱动走格动画（与单机同一套动画逻辑）
+let awaitingAck = false // 联机连点锁：action 在途时不允许再发（防双击买两张卡/借两笔款）
+let ackTimeoutTimer = null
 function applyNetState(gs) {
   console.log('[applyNetState] received', gs ? 'state ok' : 'STATE IS NULL/UNDEFINED!', { players: gs?.players?.length })
+  // 收到广播 = 上一条 action 已处理，解除连点锁
+  awaitingAck = false
+  clearTimeout(ackTimeoutTimer)
   // 无论成功与否，先清除"掷骰中"锁——这是修复掷骰卡住的核心
   diceThrowing.value = false
   animating.value = false
@@ -315,7 +455,9 @@ function applyNetState(gs) {
   }
   try {
     const prevMap = lastWalkPaths.value
+    const prevState = state.value
     state.value = gs
+    queueMoneyFx(prevState, gs)
     const { paths, nextMap } = buildMovePaths(gs, prevMap)
     lastWalkPaths.value = nextMap
     if (paths.length) {
@@ -323,6 +465,7 @@ function applyNetState(gs) {
       animating.value = true
       animatingPids.value = paths.map((p) => p.pid)
       const steps = Math.max(...paths.map((p) => p.path.length - 1))
+      for (let i = 0; i < steps; i++) setTimeout(() => sfx.step(), i * 400)
       animTimer = setTimeout(() => { animating.value = false; animatingPids.value = [] }, steps * 400 + 500)
     }
     // 落地产生购买/轻轨等 pending 时，立即停止动画锁让按钮可用（与单机 dispatch 一致）
@@ -404,12 +547,20 @@ function dispatch(action) {
   if (netMode.value) {
     const s = getSocket()
     if (!s) { console.error('[dispatch] no socket!'); return }
+    if (awaitingAck) return // 在途锁：上一条 action 还没回来，忽略连点
+    awaitingAck = true
+    clearTimeout(ackTimeoutTimer)
+    ackTimeoutTimer = setTimeout(() => { awaitingAck = false }, 5000) // 5 秒兜底复位（防 ack 丢失永久锁死）
     console.log('[dispatch] emitting action', action.type)
     s.emit('action', action, (res) => {
       console.log('[dispatch] action response', action.type, res)
+      awaitingAck = false
+      clearTimeout(ackTimeoutTimer)
       if (res?.error) {
         console.warn('[dispatch] server rejected', action.type, res.error)
-        // 服务器拒绝操作 → 清除动画/掷骰锁，避免 UI 卡死
+        showNetNotice(res.error)
+        // 服务器拒绝操作 → 清除动画/掷骰锁 + 复位"已投掷"，避免 UI 卡死/本回合投不了骰
+        diceRolled.value = false
         diceThrowing.value = false
         animating.value = false
         animatingPids.value = []
@@ -420,7 +571,9 @@ function dispatch(action) {
   }
   // 单机模式：本地算
   const prevMap = lastWalkPaths.value
+  const prevState = state.value
   state.value = gameReducer(state.value, action)
+  queueMoneyFx(prevState, state.value)
   // 落地产生购买/轻轨等 pending 时，立即停止动画让按钮可用
   if (state.value.pending?.kind === 'buy' || state.value.pending?.kind === 'metro') {
     clearTimeout(animTimer)
@@ -444,6 +597,8 @@ function dispatch(action) {
     animatingPids.value = paths.map((p) => p.pid)
     const steps = Math.max(...paths.map((p) => p.path.length - 1))
     const animMs = steps * 400 + 500
+    // 走格音效：按每步 400ms 依次轻嗒
+    for (let i = 0; i < steps; i++) setTimeout(() => sfx.step(), i * 400)
     clearTimeout(animTimer)
     animTimer = setTimeout(() => { animating.value = false; animatingPids.value = [] }, animMs)
   } else {
@@ -512,12 +667,15 @@ function onDiceThrow() {
   diceRolled.value = true
   diceThrowing.value = true
   animating.value = true
+  sfx.dice()
+  vibrate(60)
   console.log('[onDiceThrow] dispatching ROLL_DICE')
   // 超时保护：5 秒内如果服务器没回广播，自动清除掷骰锁（防卡死）
   clearTimeout(_diceTimeout)
   _diceTimeout = setTimeout(() => {
     if (diceThrowing.value) {
       console.warn('[onDiceThrow] timeout: server did not respond in 5s, resetting diceThrowing')
+      diceRolled.value = false
       diceThrowing.value = false
       animating.value = false
       animatingPids.value = []
@@ -648,10 +806,44 @@ function scheduleAI() {
 }
 
 const cur = computed(() => (state.value ? currentPlayer(state.value) : null))
+
+// "我自己"：底部面板/手牌/交易等"我的数据"绑定用它（联机=我对应的玩家，单机=唯一人类玩家），兜底当前回合玩家
+const mePlayer = computed(() => {
+  const st = state.value
+  if (!st) return null
+  if (netMode.value && myPlayerId.value) return st.players.find((p) => p.id === myPlayerId.value) ?? cur.value
+  return st.players.find((p) => !p.isAI) ?? cur.value
+})
+
+const expandedPlayer = ref(null)
+
+function playerStatus(p) {
+  if (!p) return ''
+  if (p.bankrupt) return '破产'
+  if (p.id === cur.value?.id) return '行动中'
+  if (p.jailLeft > 0) return '监狱' + p.jailLeft
+  if (p.skipTurns > 0) return '定住'
+  if (p.hospital) return '住院'
+  return ''
+}
+
 const isMyTurn = computed(() => {
   if (!cur.value) return false
   if (netMode.value) return cur.value.id === myPlayerId.value
   return !cur.value.isAI
+})
+
+// ===== 轮到你横幅 + 提示音 + 震动（必须放在 isMyTurn 定义之后，防 TDZ） =====
+const turnBanner = ref(false)
+let turnBannerTimer = null
+watch(isMyTurn, (v, old) => {
+  if (v && !old && state.value?.status === 'playing') {
+    turnBanner.value = true
+    sfx.turn()
+    vibrate(80)
+    clearTimeout(turnBannerTimer)
+    turnBannerTimer = setTimeout(() => { turnBanner.value = false }, 2000)
+  }
 })
 const myLoanLimit = computed(() => cur.value ? loanLimit(cur.value, totalAssets(cur.value)) : 0)
 
@@ -664,6 +856,10 @@ const showForkCard = computed(() => {
   if (animating.value || diceThrowing.value) return false
   return true
 })
+
+// 选路弹窗折叠（看地图模式）：新分岔自动展开
+const forkCollapsed = ref(false)
+watch(showForkCard, (v) => { if (v) forkCollapsed.value = false })
 
 // 当前是否可投掷骰子：轮到我 + 掷骰阶段 + 本回合未投过 + 非选择目标模式
 const canThrowDice = computed(() => {
@@ -682,8 +878,8 @@ const selectableTiles = computed(() => {
   if (!st || !selecting.value) return []
   const me = currentPlayer(st)
   if (selecting.value.type === 'metro') {
-    // 乘轻轨：其他所有轻轨站可选（type === 'station'）
-    return TILES.filter((t) => t.type === 'station' && t.id !== me.pos).map((t) => t.id)
+    // 乘轻轨：其他所有轻轨站可选（type === 'station'）；TILES[0] 是 null 必须判空
+    return TILES.filter((t) => t && t.type === 'station' && t.id !== me.pos).map((t) => t.id)
   }
   if (selecting.value.type === 'checkin') {
     // 打卡大礼包：任意格可选
@@ -694,16 +890,17 @@ const selectableTiles = computed(() => {
     if (!card) return []
     switch (card.type) {
       case 'buy':
-        return TILES.filter((t) => isPropertyTile(t) && !st.players.some((p) => p.alive && p.properties.includes(t.id))).map((t) => t.id)
+        // 购地卡：无主且未移除的地产（TILES[0]=null 判空 + 排除 42 号等 removed 死格）
+        return TILES.filter((t) => t && !t.removed && isPropertyTile(t) && !st.players.some((p) => p.alive && p.properties.includes(t.id))).map((t) => t.id)
       case 'demolish':
-        return TILES.filter((t) => st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id) && (p.levels[t.id] ?? 0) >= 1)).map((t) => t.id)
+        return TILES.filter((t) => t && st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id) && (p.levels[t.id] ?? 0) >= 1)).map((t) => t.id)
       case 'monster':
-        return TILES.filter((t) => st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id))).map((t) => t.id)
+        return TILES.filter((t) => t && st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id))).map((t) => t.id)
       case 'barrier':
-        return TILES.filter((t) => isPropertyTile(t) && !t.barrier).map((t) => t.id)
+        return TILES.filter((t) => t && isPropertyTile(t) && !t.barrier).map((t) => t.id)
       case 'swap':
         if (selecting.value.swapStep === 1) return me.properties.filter((i) => isPropertyTile(TILES[i]))
-        return TILES.filter((t) => st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id))).map((t) => t.id)
+        return TILES.filter((t) => t && st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id))).map((t) => t.id)
       default:
         return []
     }
@@ -718,7 +915,7 @@ const selectablePlayers = computed(() => {
   if (selecting.value.type === 'card') {
     const card = me.hand.find((c) => c.id === selecting.value.id)
     if (!card) return []
-    if (card.type === 'hold') {
+    if (card.type === 'hold' || card.type === 'steal') {
       return st.players.filter((p) => p.alive && p.id !== me.id).map((p) => p.id)
     }
   }
@@ -761,9 +958,27 @@ function onPlayerClick(playerId) {
   selecting.value = null
 }
 
+// 手机端玩家信息条点击：选目标玩家模式优先（停留卡等选人），否则开自己手牌/展开他人详情
+function onStripPlayerClick(p) {
+  if (selecting.value && selectablePlayers.value.includes(p.id)) {
+    onPlayerClick(p.id)
+    return
+  }
+  if (p.id === mePlayer.value?.id) {
+    myModal.value = 'lands' // 点自己 → 查看地产面板（含总价值）
+  } else {
+    expandedPlayer.value = expandedPlayer.value === p.id ? null : p.id
+  }
+}
+
 // 手牌点击
 function useCard(card) {
   if (!isMyTurn.value) return
+  // 本回合已用过卡片：不进入选目标模式，直接提示
+  if (mePlayer.value?.cardUsed) {
+    showNetNotice('本回合已经用过卡片了（每回合限1张）')
+    return
+  }
   myModal.value = null // 先关掉底部弹窗，露出棋盘（选目标/看使用效果）
   const kind = cardTargetKind(card.type)
   if (kind === 'none') {
@@ -812,6 +1027,8 @@ function repayLoan() {
 }
 
 function openTileInfo(id) {
+  // 选目标过程中（用卡/乘轻轨/传送）点非高亮格不弹详情，防全屏弹窗打断选地流程
+  if (selecting.value) return
   infoTile.value = id
   myModal.value = null // 从地产弹窗跳转时先关掉它
 }
@@ -881,6 +1098,9 @@ const showAuctionReveal = computed(() => {
   return st.pending.roundStep === 1
 })
 
+// 拍卖出价者：弹窗现金/上限应显示出价人资金（pending.turn），而非当前回合玩家
+const auctionBidder = computed(() => state.value?.players?.[state.value.pending?.turn] ?? null)
+
 // 人类拍卖出价输入
 const auctionBid = ref(0)
 
@@ -894,7 +1114,16 @@ const orderCurrentPlayer = computed(() => {
 })
 const isMyOrderTurn = computed(() => {
   const cp = orderCurrentPlayer.value
-  return cp && !cp.isAI
+  if (!cp || cp.isAI) return false
+  // 联机：只有轮到的玩家自己的客户端显示掷骰按钮（否则所有客户端都会显示）
+  if (netMode.value) return cp.id === myPlayerId.value
+  return true
+})
+
+// 开局顺序确定后的全员确认弹窗：done 从 false→true 时弹出，玩家点"开始游戏"关闭
+const showOrderResult = ref(false)
+watch(() => state.value?.orderState?.done, (v, old) => {
+  if (v && !old && state.value?.phase === 'roll') showOrderResult.value = true
 })
 
 // 卡片商店弹窗：路过双碑/巴南、轮到我的回合、动画结束后显示
@@ -921,6 +1150,8 @@ const showShieldPopup = computed(() => {
   const st = state.value
   if (!st || st.pending?.kind !== 'shield') return false
   if (!isMyTurn.value) return false
+  // 与其他落地弹窗一致：动画/掷骰中不弹（否则弹窗与骰子动画抢焦点）
+  if (animating.value || diceThrowing.value) return false
   return true
 })
 // 彩票弹窗
@@ -1021,6 +1252,12 @@ function onStockSell(payload) {
 
 <template>
   <div class="app halftone">
+    <!-- Android 返回键"再按一次退出"提示 -->
+    <div v-if="backHint" class="back-hint">{{ backHint }}</div>
+    <!-- 服务器拒绝/被踢等轻提示（2 秒自动消失） -->
+    <div v-if="netNotice" class="net-notice">{{ netNotice }}</div>
+    <!-- 轮到你横幅 -->
+    <div v-if="turnBanner" class="turn-banner">🎯 轮到你了</div>
     <header class="app__head">
       <h1 class="comic-title comic-title--xl">
         <span class="comic-stripe">大富翁——重庆之旅</span>
@@ -1053,9 +1290,10 @@ function onStockSell(payload) {
       @back="view = 'mode'"
     />
 
-    <!-- 联机进入对局：等第一条 gameState 广播 -->
+    <!-- 联机进入对局：等第一条 gameState 广播（服务器不可达时可退出回首页） -->
     <div v-else-if="view === 'game' && !state" class="net-loading card-comic">
       <p>📡 正在同步对局…</p>
+      <button class="btn-comic btn-comic--sm btn-comic--ghost" @click="view = 'home'; netMode = false">返回首页</button>
     </div>
 
     <!-- 游戏界面 -->
@@ -1078,7 +1316,36 @@ function onStockSell(payload) {
               >{{ def.icon }} {{ def.name }}</button>
             </div>
           </div>
-          <div class="board-wrap">
+          <!-- 手机端：玩家信息条（点击展开；选目标玩家模式下可点选） -->
+          <div v-if="state" class="player-strip">
+            <div
+              v-for="p in state.players"
+              :key="p.id"
+              class="player-strip__item"
+              :class="{ 'player-strip__item--turn': p.id === cur?.id, 'player-strip__item--dead': p.bankrupt, 'player-strip__item--open': expandedPlayer === p.id, 'player-strip__item--pick': !!selecting && selectablePlayers.includes(p.id) }"
+              @click="onStripPlayerClick(p)"
+            >
+              <div class="player-strip__summary">
+                <i class="player-strip__dot" :style="{ background: p.color }"></i>
+                <span class="player-strip__name">{{ p.name }}</span>
+                <span v-if="playerStatus(p)" class="player-strip__status">{{ playerStatus(p) }}</span>
+                <span class="player-strip__stats">
+                  <span class="player-strip__stat" title="地产">🏠{{ p.properties.length }}</span>
+                  <span class="player-strip__stat" title="手牌">🎴{{ (myPlayerId ? p.id === myPlayerId : !p.isAI) ? p.hand.length : '?' }}</span>
+                  <span v-if="p.god" class="player-strip__stat player-strip__stat--god" title="神仙附身">{{ GODS[p.god]?.icon || '👻' }}{{ GODS[p.god]?.name || '' }}</span>
+                  <span class="player-strip__stat" title="骰子数">🎲{{ VEHICLES[p.vehicle]?.dice ?? 1 }}</span>
+                  <span v-if="p.points" class="player-strip__stat player-strip__stat--pts" title="卡片积分">{{ p.points }}分</span>
+                </span>
+                <span class="player-strip__money" :class="{ 'player-strip__money--debt': p.money < 0, 'player-strip__money--warn': p.id === myPlayerId && p.money < 800 }">{{ p.money < 0 ? '欠¥' + (-p.money) : '¥' + p.money }}</span>
+                <span v-if="p.id !== mePlayer?.id" class="player-strip__arrow">{{ expandedPlayer === p.id ? '▲' : '▼' }}</span>
+              </div>
+              <div v-if="expandedPlayer === p.id && p.id !== mePlayer?.id" class="player-strip__detail">
+                <span class="player-strip__count">🏠 地产 {{ p.properties.length }}</span>
+                <span v-if="p.points" class="player-strip__points">积分 {{ p.points }}</span>
+              </div>
+            </div>
+          </div>
+          <div ref="boardWrapEl" class="board-wrap">
             <div ref="boardEl" class="board-anchor">
               <Board
                 :state="state"
@@ -1091,6 +1358,13 @@ function onStockSell(payload) {
                 @tile-click="onTileClick"
                 @tile-info="openTileInfo"
               />
+              <!-- 金钱变动飘字层（叠在棋盘上，按格子百分比定位） -->
+              <span
+                v-for="f in moneyFxList"
+                :key="f.key"
+                class="money-fx"
+                :style="{ left: f.x + '%', top: f.y + '%', color: f.color, borderColor: f.color }"
+              >{{ f.delta > 0 ? '+' + f.delta : f.delta }}</span>
             </div>
           </div>
           <ActionPanel
@@ -1116,12 +1390,27 @@ function onStockSell(payload) {
           />
         </main>
 
-        <SidePanel :state="state" :current="cur" :selectable-players="selectablePlayers" @player-click="onPlayerClick" @trade="openTrade" />
+        <SidePanel :state="state" :current="cur" :me="mePlayer" :selectable-players="selectablePlayers" @player-click="onPlayerClick" @trade="openTrade" />
       </div>
 
       <div class="app__bags">
-        <BagsBar :me="cur" :state="state" @open="myModal = $event" @open-encyclopedia="showEncyclopedia = true" @open-loan="showLoan = true" />
-      </div>
+        <BagsBar :me="mePlayer" :state="state" @open="myModal = $event" @open-encyclopedia="showEncyclopedia = true" @open-loan="showLoan = true" />
+      <GameMenu
+        :room-id="currentRoomId"
+        :is-host="isHost"
+        :is-my-turn="isMyTurn"
+        :paused="paused"
+        :ai-takeover="aiTakeover"
+        :turn-time-left="turnTimeLeft"
+        :players="lobbyPlayers"
+        :game-log="gameLog"
+        @surrender="onSurrender"
+        @pause="onTogglePause"
+        @kick="onKickPlayer"
+        @set-password="onSetPassword"
+        @toggle-a-i-takeover="onToggleAITakeover"
+      />
+    </div>
 
       <!-- 决定先手顺序弹窗 -->
       <div v-if="isOrderPhase" class="overlay-layer fork-card-overlay">
@@ -1151,11 +1440,28 @@ function onStockSell(payload) {
         </div>
       </div>
 
+      <!-- 顺序确定确认弹窗：全员可见，各自点"开始游戏"关闭 -->
+      <div v-if="showOrderResult" class="overlay-layer fork-card-overlay">
+        <div class="card-comic card-comic--pad-lg fork-card order-result">
+          <div class="fork-card__dice">🏁</div>
+          <h3 class="comic-title comic-title--md">行动顺序已定</h3>
+          <ol class="order-result__list">
+            <li v-for="(p, i) in state.players" :key="p.id" class="order-result__item" :class="{ 'order-result__item--me': p.id === myPlayerId }">
+              <b class="order-result__rank">{{ i + 1 }}</b>
+              <i class="player-strip__dot" :style="{ background: p.color }"></i>
+              <span class="order-result__name">{{ p.name }}</span>
+              <span v-if="orderState?.rolls?.[p.id]" class="order-result__roll">{{ orderState.rolls[p.id].join('+') }} = {{ orderState.rolls[p.id].reduce((a, b) => a + b, 0) }}点</span>
+            </li>
+          </ol>
+          <button class="btn-comic" @click="showOrderResult = false">开始游戏</button>
+        </div>
+      </div>
+
       <!-- 底部入口弹窗（卡牌/地产/其它） -->
       <MyPanelModal
         v-if="myModal"
         :mode="myModal"
-        :me="cur"
+        :me="mePlayer"
         :state="state"
         :is-my-turn="isMyTurn"
         @close="myModal = null"
@@ -1233,8 +1539,8 @@ function onStockSell(payload) {
 
       <!-- 分岔路口：选路卡可自选方向 / 无选路卡则随机分配 -->
       <div
-        v-if="showForkCard"
-        class="overlay-layer fork-card-overlay"
+        v-if="showForkCard && !forkCollapsed"
+        class="overlay-layer fork-card-overlay fork-card-overlay--transparent"
       >
         <div class="card-comic card-comic--pad-lg fork-card">
           <button class="fork-card__close" @click="onForkClose" aria-label="关闭路线卡片">✕</button>
@@ -1257,8 +1563,17 @@ function onStockSell(payload) {
           <!-- 随机模式：显示结果 -->
           <div v-else class="fork-card__route">{{ TILES[state.pending.chosen].name }}</div>
           <p class="fork-card__hint">选择后会继续走完剩余 {{ state.pending.stepsLeft + 1 }} 步（含本步）· 点右上角 ✕ 随机选路</p>
+          <button v-if="state.pending.canPick" class="btn-comic btn-comic--sm btn-comic--ghost fork-card__map-btn" @click="forkCollapsed = true">
+            🗺️ 看地图
+          </button>
         </div>
       </div>
+      <!-- 选路折叠角标：看地图期间持续提醒待选路 -->
+      <button
+        v-if="showForkCard && forkCollapsed"
+        class="fork-fab"
+        @click="forkCollapsed = false"
+      >⑂ 待选路</button>
 
       <!-- 卡片商店（路过双碑/巴南） -->
       <div v-if="showShop" class="overlay-layer fork-card-overlay">
@@ -1456,7 +1771,7 @@ function onStockSell(payload) {
       <TradeModal
         v-if="showTradeModal"
         :state="state"
-        :me="cur"
+        :me="mePlayer"
         :target-player-id="tradeTarget"
         @close="tradeTarget = null"
         @offer="onTradeOffer"
@@ -1508,6 +1823,64 @@ function onStockSell(payload) {
 </template>
 
 <style scoped>
+/* Android 返回键"再按一次退出"提示（悬浮在底部中央） */
+.back-hint {
+  position: fixed;
+  bottom: calc(20px + var(--safe-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 20px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 14px;
+  font-weight: 900;
+  border-radius: 999px;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+/* 轮到你横幅 */
+.turn-banner {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 32px;
+  background: var(--pop-yellow);
+  color: var(--ink);
+  border: 3px solid var(--ink);
+  border-radius: 12px;
+  box-shadow: 4px 4px 0 0 var(--ink);
+  font-size: 18px;
+  font-weight: 900;
+  z-index: 9998;
+  pointer-events: none;
+  animation: turn-banner-in 0.3s ease-out;
+}
+@keyframes turn-banner-in {
+  0% { transform: translateX(-50%) translateY(-30px); opacity: 0; }
+  100% { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
+
+/* 金钱变动飘字：大字上飘淡出 2.2s，颜色=玩家色 */
+.money-fx {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-size: clamp(16px, 3.4cqw, 30px);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 2px 2px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff;
+  z-index: 40;
+  pointer-events: none;
+  animation: money-fx-float 2.2s ease-out forwards;
+}
+@keyframes money-fx-float {
+  0% { opacity: 0; transform: translate(-50%, -30%) scale(0.6); }
+  12% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }
+  25% { transform: translate(-50%, -60%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -150%) scale(0.95); }
+}
+
 .app {
   min-height: 100vh;
   display: flex;
@@ -1530,11 +1903,19 @@ function onStockSell(payload) {
   align-items: start;
 }
 
+/* 棋盘锚区：声明为尺寸容器，让金钱飘字的 cqw 字号参照棋盘实际宽度 */
+.board-anchor {
+  position: relative;
+  container-type: inline-size;
+}
+
 .app__board {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  flex-direction: column;  gap: var(--space-2);
 }
+
+/* 桌面端隐藏玩家信息条 */
+.player-strip { display: none; }
 
 .board-wrap {
   display: block;
@@ -1603,6 +1984,63 @@ function onStockSell(payload) {
 .fork-card-overlay {
   z-index: 80;
 }
+
+/* 选路"看地图"模式：遮罩近乎全透，玩家可观察棋盘 */
+.fork-card-overlay--transparent { background: rgba(26, 26, 26, 0.12); }
+/* 折叠态悬浮角标 */
+.fork-fab {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 85;
+  padding: 8px 16px;
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  background: var(--pop-yellow);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 0 var(--ink);
+  animation: fork-fab-pulse 1.4s ease-in-out infinite;
+}
+@keyframes fork-fab-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+.fork-card__map-btn { margin-top: 8px; }
+
+/* 顺序确认弹窗 */
+.order-result { max-width: 340px; width: 100%; }
+.order-result__list {
+  list-style: none;
+  margin: 8px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.order-result__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 900;
+}
+.order-result__item--me { background: #fff3c4; box-shadow: 2px 2px 0 0 var(--ink); }
+.order-result__rank {
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--pop-yellow);
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  font-size: 12px;
+}
+.order-result__name { flex: 1; text-align: left; }
+.order-result__roll { font-size: 12px; opacity: 0.65; font-weight: 700; }
 
 .fork-card {
   position: relative;
@@ -2061,32 +2499,210 @@ function onStockSell(payload) {
 
 /* ===== 手机端适配（不影响桌面） ===== */
 @media (max-width: 768px) {
-  .app__game {
-    grid-template-columns: 1fr;
-    gap: 8px;
+  /* #app 变成 flex 列布局 */
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+  }
+  .app__head, .app__foot { display: none; }
+
+  /* BagsBar + GameMenu：放最上面 */
+  .app__bags {
+    order: -1;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 4px;
+    padding: calc(4px + var(--safe-top)) 8px 4px;
+    background: var(--paper);
+    border-bottom: 2px solid var(--ink);
+    z-index: 10;
   }
 
-  /* 棋盘：保持最小可读宽度，横向滚动 */
+  /* 游戏区占满中间 */
+  .app__game {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    gap: 0;
+    min-height: 0;
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .app__board {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    overflow: hidden;
+    position: relative; /* 让选择提示条/选股条可以悬浮在棋盘上方，不挤压布局 */
+  }
+
+  /* 选择模式提示条 / 股票选择卡：悬浮显示，出现/消失不挤压棋盘（防布局跳动） */
+  .select-bar,
+  .stock-picker {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    width: max-content;
+    max-width: calc(100% - 16px);
+    box-shadow: 3px 3px 0 0 var(--ink);
+  }
+
+  /* SidePanel 手机端隐藏 */
+  .app__game > aside {
+    display: none;
+  }
+
+  /* 手机端：紧凑玩家信息条 */
+  .player-strip {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex-shrink: 0;
+    padding: 3px 6px;
+    background: var(--paper);
+    border-bottom: 2px solid var(--ink);
+  }
+  .player-strip__item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    font-size: 10px;
+    font-weight: 900;
+    padding: 2px 6px;
+    border: 1.5px solid var(--ink);
+    border-radius: 5px;
+    background: #fff;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .player-strip__item--turn {
+    background: #fff3c4;
+    box-shadow: 1.5px 1.5px 0 0 var(--ink);
+  }
+  .player-strip__item--dead { opacity: 0.4; }
+  .player-strip__dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1.5px solid var(--ink);
+    flex-shrink: 0;
+  }
+  .player-strip__name {
+    max-width: 36px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .player-strip__status {
+    font-size: 9px;
+    padding: 1px 4px;
+    background: #fef3c7;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .player-strip__money {
+    font-variant-numeric: tabular-nums;
+  }
+  .player-strip__money--debt { color: var(--pop-red); }
+  .player-strip__money--warn { color: var(--pop-red); animation: money-warn 1s ease-in-out infinite; }
+  @keyframes money-warn { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .player-strip__summary {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    width: 100%;
+  }
+  .player-strip__stats {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .player-strip__stat {
+    font-size: 9px;
+    font-weight: 900;
+    opacity: 0.85;
+    white-space: nowrap;
+  }
+  .player-strip__stat--god { color: #8b5cf6; }
+  .player-strip__stat--pts { color: #2563eb; }
+  .player-strip__status {
+    font-size: 9px;
+    padding: 1px 4px;
+    background: #fef3c7;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .player-strip__count {
+    font-size: 9px;
+    opacity: 0.8;
+    flex-shrink: 0;
+  }
+  .player-strip__points {
+    font-size: 9px;
+    color: #2563eb;
+    flex-shrink: 0;
+  }
+  .player-strip__arrow {
+    margin-left: auto;
+    font-size: 9px;
+    opacity: 0.6;
+    flex-shrink: 0;
+  }
+  .player-strip__detail {
+    display: flex;
+    gap: 10px;
+    padding: 2px 0 0 16px;
+    border-top: 1.5px dashed var(--ink);
+    margin-top: 2px;
+  }
+  .player-strip__item--open {
+    background: #fff3c4;
+  }
+
+  /* 棋盘占满中间区域 */
   .board-wrap {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    container-type: size; /* 棋盘用 cqh/cqw 感知容器实际宽高 → 短边驱动，任意屏比例都完整显示 */
   }
   .board-anchor {
-    min-width: 360px;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
   }
   :deep(.board) {
-    width: max(100vw - 16px, 360px) !important;
-    max-width: 500px !important;
-    height: auto !important;
+    /* CSS 版（新 WebView）；旧 WebView 由 JS ResizeObserver 兜底（见 fitBoard） */
+    width: min(100cqw, calc(100cqh * 100 / 85));
+    max-width: 600px;
+    height: auto;
     aspect-ratio: 100 / 85;
+    transition: width 0.25s ease, height 0.25s ease; /* 万一尺寸变化也平滑，不突变 */
   }
-  /* 手机端：去掉价格/积分，放大地名，边框变窄 */
+  /* 手机端：去掉价格/积分，边框变窄（地名字号交给 nameFont 按字数分档，勿强制统一防长名裁切） */
   :deep(.tile__price),
   :deep(.tile__points) {
     display: none !important;
   }
   :deep(.tile__name) {
-    font-size: 1.4cqw !important;
     line-height: 1.1;
   }
   :deep(.tile) {
@@ -2099,66 +2715,60 @@ function onStockSell(payload) {
     font-size: 0.8cqw;
   }
 
-  /* 右侧面板：手机堆叠在棋盘下方，紧凑显示 */
-  .app__game {
-    gap: 6px;
-  }
-  .app__game > aside {
+  /* ActionPanel：底部栏 */
+  .actions {
+    flex-shrink: 0;
     width: 100%;
+    border-radius: 0;
+    padding: 8px 8px calc(8px + var(--safe-bottom)) !important;
+    border-top: 3px solid var(--ink);
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    position: relative !important;
   }
-  :deep(.side) {
-    flex-direction: column;
-    gap: 6px;
+  .actions__menu-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
   }
-  :deep(.side__block) {
-    padding: 8px 10px;
+  .phase-bar { padding-bottom: 4px; margin-bottom: 2px; }
+  .actions__status { font-size: 13px; }
+  .actions__meta { font-size: 11px; gap: 8px; }
+  .actions__btns { gap: 4px; }
+  .actions__btns .btn-comic {
+    min-height: 30px !important;
+    padding: 4px 10px !important;
+    font-size: 12px !important;
+    border-width: 2px !important;
+    box-shadow: 2px 2px 0 0 var(--ink) !important;
   }
-  :deep(.side__block--grow) {
-    max-height: 150px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  :deep(.players) {
-    gap: 3px;
-  }
-  :deep(.player__row) {
-    padding: 5px 6px;
-    gap: 5px;
-  }
-  :deep(.player__name) {
-    font-size: 13px;
-  }
-  :deep(.player__money) {
-    font-size: 13px;
-  }
-  :deep(.log) {
-    max-height: 60px;
-    font-size: 12px;
-  }
-  :deep(.chat) {
-    display: none;
-  }
+  .actions__roll-hint { font-size: 12px; padding: 4px 8px; }
+  .actions__wait { font-size: 12px; }
+  .legend { display: none; }
 
-  /* 底部栏纵向堆叠 */
-  .app__bags {
-    flex-direction: column;
-    gap: 8px;
+  /* 弹窗：居中 + 安全区 */
+  .fork-card-overlay { padding: 16px; align-items: center; }
+  .modal-card, .fork-card, .info {
+    max-width: calc(100vw - 16px) !important;
+    width: calc(100vw - 16px) !important;
+    max-height: 75vh;
+    overflow-y: auto;
+    padding: 16px !important;
+    border-radius: 12px !important;
+    margin-bottom: var(--safe-bottom);
   }
-  .bags {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-  .bags__btns {
-    justify-content: center;
-  }
-  .bags__status {
-    width: 100%;
-  }
-  .bags__status-card {
-    width: 100%;
-  }
+  .fork-card { border-radius: 12px; }
+  .fork-card__close { top: 8px; right: 8px; }
+  .modal-overlay { padding-bottom: var(--safe-bottom); }
+  .btn-comic { min-height: 44px; padding: 10px 16px; font-size: 14px; }
+  .btn-comic--sm { min-height: 36px; padding: 6px 12px; }
+  .lottery-numbers { max-height: 260px; }
+  .lot-num { font-size: 11px; }
+  :deep(.enc) { max-height: 80vh; max-width: calc(100vw - 16px); }
+  :deep(.dbg__panel) { width: calc(100vw - 16px); max-height: 60vh; }
+  :deep(.my-panel) { max-width: calc(100vw - 16px); }
+
 
   /* 弹窗加大触摸区域 */
   .modal-card,
@@ -2218,55 +2828,5 @@ function onStockSell(payload) {
   .bags__turn-player {
     font-size: 12px;
   }
-}
-
-/* ===== 手机端竖屏适配 ===== */
-@media (max-width: 768px) {
-  .app__game {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-  .app__head h1 { font-size: 20px; }
-
-  /* 棋盘：宽度填满，高度自适应 */
-  .board-wrap {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    display: flex;
-    justify-content: center;
-  }
-  :deep(.board) {
-    width: 100% !important;
-    max-width: 500px !important;
-    height: auto !important;
-    aspect-ratio: 100 / 85;
-  }
-
-  /* 格子：去掉价格/积分（太占空间），放大地名 */
-  :deep(.tile__price),
-  :deep(.tile__points) { display: none !important; }
-  :deep(.tile__name) { font-size: 1.5cqw !important; }
-
-  /* 右侧面板堆叠在棋盘下方 */
-  .app__game > aside { width: 100%; }
-  :deep(.side) { flex-direction: column; gap: 6px; }
-  :deep(.side__block) { padding: 8px 10px; }
-
-  /* 底部菜单栏：纵向堆叠，按钮加大 */
-  .bags { flex-wrap: wrap; justify-content: center; gap: 6px; }
-  .bags__btns { flex-wrap: wrap; justify-content: center; }
-
-  /* 按钮加大触摸区域 */
-  .btn-comic { min-height: 44px; padding: 10px 16px; }
-  .btn-comic--sm { min-height: 36px; padding: 6px 12px; }
-
-  /* 禁止选择文字 / 下拉刷新 */
-  * { user-select: none; -webkit-user-select: none; }
-  html, body { overscroll-behavior: none; }
-}
-
-@media (max-width: 480px) {
-  .bags__chip { font-size: 10px; padding: 2px 6px; }
-  .bags__round-badge { font-size: 11px; padding: 2px 8px; }
 }
 </style>

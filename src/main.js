@@ -7,7 +7,8 @@ import { Capacitor } from '@capacitor/core'
 import { StatusBar } from '@capacitor/status-bar'
 if (Capacitor.isNativePlatform()) {
   document.body.classList.add('capacitor')
-  StatusBar.hide().catch(() => {})
+  // 只让 WebView 覆盖到状态栏后面；隐藏系统栏由 MainActivity 原生层统一处理
+  StatusBar.setOverlaysWebView({ overlay: true }).catch(() => {})
 }
 
 createApp(App).mount('#app')

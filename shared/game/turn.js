@@ -80,9 +80,6 @@ export function handleLanding(state, player) {
       if (isMetro(tile) && !state.pending) {
         state.pending = { kind: 'metro', tileId: tile.id }
       }
-      // 维护可升级地块（踩到自己的地产 → 加入可升级列表）
-      if (!player.upgradableTiles) player.upgradableTiles = []
-      if (!player.upgradableTiles.includes(tile.id)) player.upgradableTiles.push(tile.id)
       // 免租卡：手中有卡时触发（AI自动用，人类弹询问）
       const shieldResult = checkShieldCard(state, player)
       if (shieldResult === 'ask') {
@@ -217,9 +214,10 @@ export function handleLanding(state, player) {
           const tile = TILES[ev.tileId]
           const owner = state.players.find((p) => p.alive && p.properties.includes(ev.tileId))
           if (owner && owner.id !== player.id) {
-            // 从原主人处夺取
+            // 从原主人处夺取（抵押标记一并清除，防止原主人赎回不属于自己的地）
             owner.properties = owner.properties.filter((i) => i !== ev.tileId)
             delete owner.levels[ev.tileId]
+            delete owner.mortgaged?.[ev.tileId]
             state.log.push(`🏫 ${player.name} 从 ${owner.name} 手中夺取了「${tile.name}」！`)
           } else if (owner && owner.id === player.id) {
             state.log.push(`🏫 ${player.name} 已是「${tile.name}」主人，租金加成提升！`)
@@ -278,6 +276,10 @@ export function handleLanding(state, player) {
             const owner = state.players.find((p) => p.alive && p.properties.includes(tile.id))
             if (!owner) {
               state.pending = { kind: 'buy', tileId: tile.id }
+            } else if (owner.id === player.id) {
+              // 传送到自己地产：与正常踩格一致，给升级资格
+              if (!player.upgradableTiles) player.upgradableTiles = []
+              if (!player.upgradableTiles.includes(tile.id)) player.upgradableTiles.push(tile.id)
             } else if (owner.id !== player.id) {
               const shieldResult2 = checkShieldCard(state, player)
               if (shieldResult2 === 'ask') {
@@ -357,7 +359,14 @@ export function handleLanding(state, player) {
 // 推进到下一存活玩家
 export function nextTurn(state) {
   const alive = alivePlayers(state)
-  if (alive.length === 0) return state
+  if (alive.length === 0) {
+    // 全员破产：按剩余资产结算结束对局（否则对局永久卡死）
+    const ranked = [...state.players].sort((a, b) => totalAssets(b, state.stockRuntime) - totalAssets(a, state.stockRuntime))
+    state.status = 'finished'
+    state.winnerId = ranked[0]?.id ?? null
+    state.log.push(`💀 所有玩家都破产了，对局结束（剩余资产最高：${ranked[0]?.name ?? '无'}）`)
+    return state
+  }
 
   // 路障倒计时：每回合减1，到期清除（存 state，跨对局/跨房间隔离）
   state.barriers = state.barriers || {}
@@ -393,7 +402,7 @@ export function nextTurn(state) {
     for (const p of state.players) {
       if (!p.alive) continue
       if (!state.assetHistory[p.id]) state.assetHistory[p.id] = []
-      state.assetHistory[p.id].push(totalAssets(p))
+      state.assetHistory[p.id].push(totalAssets(p, state.stockRuntime))
     }
     // 新回合清理上轮的商圈达成标记（防内存膨胀，同时允许"组合被破→重建"后再次提示）
     const currentRound = state.round
@@ -419,6 +428,7 @@ export function nextTurn(state) {
   state.pending = null
   state.shopShownTurn = false
   state.lotteryBoughtTurn = false // 重置本回合购彩标志
+  state.lotteryPromptedTurn = false // 重置本回合彩票弹窗标志（防不买反复重弹）
 
   // 彩票：中奖后重置新一轮
   resetLotteryIfWon(state)
@@ -435,7 +445,7 @@ export function nextTurn(state) {
 
   const np = state.players[next]
   np.cardUsed = false // 新回合重置用卡标志
-  np.firstTurn = false // 第一回合标志清除（从第二回合开始能用卡）
+  state.players[prev].firstTurn = false // 刚结束回合的玩家完成首回合（此后可用卡；不能清 np 的，否则非首位玩家首回合就能用卡）
 
   state.phase = 'roll'
 
@@ -443,9 +453,6 @@ export function nextTurn(state) {
   for (const p of state.players) {
     if (p.upgradableTiles) p.upgradableTiles = []
   }
-
-  // 彩票开奖判定
-  tickLottery(state)
 
   // 每 5 回合：全体存活玩家送 1 张随机卡
   if (state.round > 1 && state.round % 5 === 0) {
@@ -483,6 +490,10 @@ export function nextTurn(state) {
       state.log.push(`🔨 拍卖开始！「${tile.name}」零元起拍，${ac} 位玩家盲拍出价（原价 ¥${tile.price}）`)
     }
   }
+
+  // 彩票开奖判定（放在拍卖之后：同回合两者都触发时，开奖弹窗让位给拍卖，
+  // 结果仍在日志与 lottery 状态里，避免 lottery_draw pending 被拍卖覆盖后丢失）
+  tickLottery(state)
 
   const winner = getWinnerByElimination(state)
   if (winner) {

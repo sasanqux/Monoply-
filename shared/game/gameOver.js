@@ -1,13 +1,18 @@
 // gameOver.js — 破产判定与胜负判定
 import { totalAssets } from './property.js'
 import { TILES, SELL_RATIO } from './board.js'
+import { forceSellStocks } from './bank.js'
 
 // 自动卖地自救：先卖低等级地（保留已投入升级资金的高等级地，卖价不区分等级），
 // 直到现金为正；仍不足则破产。抵押地不参与卖地（抵押地直接归银行）
 export function checkBankrupt(state, player) {
   if (!player.alive || player.money >= 0) return
 
-  // 先卖空地/低等级地，保留已投入升级资金的高等级地（卖价不区分等级，先卖等级低的更划算）
+  // 先卖股票自救（无手续费、随时可变现，不该被迫贱卖地产）
+  forceSellStocks(state, player)
+  if (player.money >= 0) return
+
+  // 再卖空地/低等级地，保留已投入升级资金的高等级地（卖价不区分等级，先卖等级低的更划算）
   // 抵押地不参与卖地（抵押地直接归银行）
   const owned = [...player.properties]
     .filter((idx) => !player.mortgaged?.[idx])
@@ -30,7 +35,7 @@ export function checkBankrupt(state, player) {
   }
 
   if (player.money < 0) {
-    // 破产：抵押地直接归银行，其余地产全部清空
+    // 破产：抵押地直接归银行，其余地产全部清空（股票已在上方强制变现）
     const mortgagedIds = Object.keys(player.mortgaged || {})
     for (const idx of mortgagedIds) {
       state.log.push(`🏦 ${player.name} 抵押中的「${TILES[idx].name}」被银行收回`)
@@ -40,6 +45,7 @@ export function checkBankrupt(state, player) {
     player.properties = []
     player.levels = {}
     player.mortgaged = {}
+    player.stockHoldings = {}
     state.log.push(`💸 ${player.name} 破产出局！`)
     // 记录破产提示（供弹窗展示）
     state._bankruptPopup = { playerId: player.id, playerName: player.name }
@@ -62,6 +68,6 @@ export function getWinnerByElimination(state) {
 export function settleByTurns(state) {
   const ranked = [...state.players]
     .filter((p) => p.alive)
-    .sort((a, b) => totalAssets(b) - totalAssets(a))
+    .sort((a, b) => totalAssets(b, state.stockRuntime) - totalAssets(a, state.stockRuntime))
   return ranked[0]?.id ?? null
 }

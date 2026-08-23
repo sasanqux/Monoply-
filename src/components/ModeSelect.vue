@@ -33,6 +33,7 @@ const emit = defineEmits(['single', 'create', 'join'])
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh;
   gap: 32px;
   padding: 20px;
 }

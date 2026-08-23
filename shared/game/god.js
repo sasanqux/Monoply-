@@ -56,7 +56,9 @@ export function handleGodTile(state, player) {
   }
 
   if (god.kind === 'instant') {
-    // 崔斯特：即时生效，不附身
+    // 崔斯特：即时生效，不附身；原有神仙已被上方日志宣告"挤走"，这里真正清除
+    player.god = null
+    player.godTurnsLeft = 0
     applyInstantGod(state, player, godId)
   } else {
     // 其他神仙：附身
@@ -177,9 +179,10 @@ function applyTuDiGong(state, player, tile) {
     player.levels[tile.id] = 0
     state.log.push(`🏴 土地公显灵！${player.name} 无偿占据「${tile.name}」！`)
   } else if (owner.id !== player.id) {
-    // 有主地：抢夺（有房变0级）
+    // 有主地：抢夺（有房变0级；抵押标记一并清除，防止原主人赎回不属于自己的地）
     owner.properties = owner.properties.filter((i) => i !== tile.id)
     delete owner.levels[tile.id]
+    delete owner.mortgaged?.[tile.id]
     player.properties = player.properties || []
     player.properties.push(tile.id)
     player.levels = player.levels || {}

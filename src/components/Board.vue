@@ -1,8 +1,8 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onBeforeUnmount } from 'vue'
 import ComicIcon from './ComicIcon.vue'
 import BoardFx from './BoardFx.vue'
-import { TILES, METRO_STATIONS, PATH_POLYLINE, tilePosition, isPropertyTile, isMetro, SHOPS, playerInitial, GODS } from '../game/index.js'
+import { TILES, METRO_STATIONS, PATH_POLYLINE, tilePosition, isPropertyTile, isMetro, SHOPS, GODS } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
@@ -17,6 +17,63 @@ const emit = defineEmits(['tileClick', 'upgrade', 'tileInfo'])
 
 const shaking = ref(false)
 const movingPids = ref(new Set()) // 正在走格动画的玩家（隐藏真实棋子，避免双影）
+
+// 捏合缩放
+const boardScale = ref(1)
+let pinchStartDist = 0
+let pinchStartScale = 1
+// 长按格子 → 查看详情（手机端防误触）
+let longPressTimer = null
+let longPressTriggered = false
+
+function onTouchStartBoard(e) {
+  if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX
+    const dy = e.touches[0].clientY - e.touches[1].clientY
+    pinchStartDist = Math.hypot(dx, dy)
+    pinchStartScale = boardScale.value
+    return
+  }
+  // 单指双击（<300ms）复位缩放：放大后无平移手段，双击回到 1 倍
+  const now = Date.now()
+  if (now - lastTapAt < 300 && boardScale.value !== 1) boardScale.value = 1
+  lastTapAt = now
+}
+let lastTapAt = 0
+
+onBeforeUnmount(() => {
+  // 卸载后长按回调不再触发 tileInfo（否则 500ms 后仍向已卸载的父级 emit）
+  if (longPressTimer) clearTimeout(longPressTimer)
+})
+
+function onTouchMoveBoard(e) {
+  if (e.touches.length === 2 && pinchStartDist > 0) {
+    e.preventDefault()
+    const dx = e.touches[0].clientX - e.touches[1].clientX
+    const dy = e.touches[0].clientY - e.touches[1].clientY
+    const dist = Math.hypot(dx, dy)
+    boardScale.value = Math.max(0.5, Math.min(2.5, pinchStartScale * dist / pinchStartDist))
+  }
+}
+
+function onTileTouchStart(t) {
+  // 选择模式下可选格子不触发长按（避免干扰选择操作）
+  if (props.selectable.includes(t.id)) return
+  longPressTriggered = false
+  longPressTimer = setTimeout(() => {
+    longPressTriggered = true
+    emit('tileInfo', t.id)
+    if (navigator.vibrate) navigator.vibrate(50)
+  }, 500)
+}
+
+function onTileTouchEnd() {
+  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null }
+}
+
+function onTileTouchMove() {
+  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null }
+}
 function onBoom() {
   shaking.value = true
   setTimeout(() => (shaking.value = false), 450)
@@ -82,12 +139,21 @@ function tileSize(t) {
 
 // 按名字长度自适应字号：直接用 cqw（=棋盘宽的 1%），与格子尺寸同一参考系，
 // 不使用 px 封顶/保底，保证缩放时字与格子永远同比例（不再脱钩）
-function nameFont(name) {
+// 地名拆行：≤4 字单行；5 字拆 3+2；6 字拆 3+3；7+ 字拆 4+3（前多后少，符合地名语感）
+function nameLines(name) {
   const len = name.length
-  if (len <= 3) return '1.8cqw'
-  if (len === 4) return '1.5cqw'
-  if (len === 5) return '1.3cqw'
-  return '1.1cqw' // 6 字及以上
+  if (len <= 4) return [name]
+  const first = Math.ceil(len / 2)
+  return [name.slice(0, first), name.slice(first)]
+}
+
+// 字号按"最长行字数"取格子能容纳的最大值（格宽 9.4cqw，可用约 8.2cqw，留安全余量）
+function nameFont(name) {
+  const maxLen = Math.max(...nameLines(name).map((s) => s.length))
+  if (maxLen <= 2) return '1.9cqw'
+  if (maxLen === 3) return '1.7cqw'
+  if (maxLen === 4) return '1.35cqw'
+  return '1.1cqw' // 5 字行（仅 4+3 拆分出现）
 }
 
 // 格子背景：默认白色；被某玩家购买后涂上该玩家颜色；朝天门（起点）用 CSS 棕色斜条纹
@@ -189,6 +255,7 @@ function upgradable(id) {
 }
 
 function onTile(t) {
+  if (longPressTriggered) { longPressTriggered = false; return }
   // 调试传送模式：所有格子点击都当作传送目标（不弹详情）
   if (props.teleportMode) {
     emit('tileClick', t.id)
@@ -205,7 +272,14 @@ function onTile(t) {
 </script>
 
 <template>
-  <div class="board" :class="{ 'board--shake': shaking }">
+  <div
+    class="board"
+    :class="{ 'board--shake': shaking }"
+    :style="{ transform: 'scale(' + boardScale + ')' }"
+    @touchstart="onTouchStartBoard"
+    @touchmove="onTouchMoveBoard"
+    @dblclick="boardScale = 1"
+  >
     <svg class="board__bg" viewBox="0 0 100 88" preserveAspectRatio="none" aria-hidden="true">
       <!-- 轻轨线（立体交通） -->
       <polyline :points="metroLine" fill="none" stroke="#a855f7" stroke-width="1.3" stroke-dasharray="2.6 2.2" opacity="0.9" />
@@ -237,11 +311,16 @@ function onTile(t) {
       }"
       :style="{ left: posOf(t.id).x + '%', top: posOf(t.id).y + '%', width: tileSize(t).w, height: tileSize(t).h, background: tileBg(t), color: tileFg(t), '--attr': tileAttrColor(t) }"
       :title="t.name + (t.sub ? ' · ' + t.sub : '') + (ownerOf(t.id) ? ' · 拥有者 ' + ownerOf(t.id).name : '')"
+      @touchstart="onTileTouchStart(t)"
+      @touchend="onTileTouchEnd"
+      @touchmove="onTileTouchMove"
       @click="onTile(t)"
     >
       <span v-if="!isPropertyTile(t) && t.points" class="tile__num">+{{ t.points }}</span>
       <span v-if="isFork(t)" class="tile__fork" title="分岔路口：可自选路线">分</span>
-      <span class="tile__name" :style="{ fontSize: nameFont(t.name) }">{{ t.name }}</span>
+      <span class="tile__name" :class="{ 'tile__name--darkbg': tileFg(t) === '#ffffff' }" :style="{ fontSize: nameFont(t.name) }">
+        <span v-for="(seg, i) in nameLines(t.name)" :key="i" class="tile__name-line">{{ seg }}</span>
+      </span>
       <span v-if="isPropertyTile(t) && t.price" class="tile__price">¥{{ t.price }}<span v-if="t.points" class="tile__points">{{ t.points }}</span></span>
       <span v-if="t.shop" class="tile__cardshop" title="卡片商店：路过可购买卡片">卡</span>
       <span v-if="t.lottery" class="tile__lottery-mark" title="彩票站">🎫</span>
@@ -263,14 +342,14 @@ function onTile(t) {
           v-for="p in playersOn(t.id)"
           :key="p.id"
           class="pawn"
-          :class="{ 'pawn--moving': movingPids.has(p.id) || props.extraHidePids.includes(p.id) }"
+          :class="{ 'pawn--moving': movingPids.has(p.id) || props.extraHidePids.includes(p.id), 'pawn--turn': p.id === current?.id && p.alive }"
           :style="{ '--pc': p.color }"
           :title="p.name"
         >
+          <i class="pawn__dot"></i>
           <!-- 神仙附身角标 -->
           <em v-if="p.god" class="pawn__god-mark">{{ godIcon(p.god) }}</em>
-          <i class="pawn__face">{{ playerInitial(p) }}</i>
-          <em class="pawn__tag">{{ p.name }}</em>
+
         </span>
       </span>
     </div>
@@ -283,6 +362,8 @@ function onTile(t) {
 <style scoped>
 .board {
   position: relative;
+  touch-action: none;
+  transition: transform 0.15s ease;
   /* 固定像素宽度：Chrome Ctrl+/- 缩放时，固定 px 会和文字一起正常缩放；
      而 100%/vw/vh 这类"占满视口"的尺寸缩放时不会变小，会和文字脱钩。
      代价：宽屏两侧有留白——觉得小就 Ctrl+ 放大（放大缩小都同步）。 */
@@ -443,14 +524,26 @@ function onTile(t) {
 
 .tile__name {
   font-weight: 900;
-  line-height: 1.05;
-  flex: 1;
-  min-width: 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  line-height: 1.08;
+  flex: none;
+  width: 100%;
+  margin-top: 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
+  /* 高对比底条：浅色格垫白、深色格垫黑，任何玩家色底上字都清晰 */
+  background: rgba(255, 255, 255, 0.78);
+  border-radius: 4px;
+  padding: 1px 2px;
+  box-decoration-break: clone;
+}
+.tile__name--darkbg {
+  background: rgba(0, 0, 0, 0.32);
+}
+.tile__name-line {
+  white-space: nowrap;
+  display: block;
 }
 
 .tile__closed {
@@ -476,10 +569,11 @@ function onTile(t) {
 
 .tile__barrier {
   position: absolute;
-  bottom: -2px;
-  right: -2px;
-  font-size: 1.2cqw;
+  bottom: 0;
+  right: 0;
+  font-size: 1.0cqw;
   line-height: 1;
+  opacity: 0.9;
   animation: barrier-shake 0.4s ease-in-out infinite;
 }
 @keyframes barrier-shake {
@@ -491,32 +585,33 @@ function onTile(t) {
   position: absolute;
   top: 1px;
   right: 1px;
-  font-size: 0.82cqw;
+  font-size: 0.6cqw; /* 缩小：不遮挡格子名 */
   font-weight: 900;
   line-height: 1;
   color: #fff;
   background: var(--pop-red, #ef4444);
-  border: 1.5px solid #fff;
-  border-radius: 4px;
-  padding: 1px 3px;
+  border: 1px solid #fff;
+  border-radius: 3px;
+  padding: 0.5px 2px;
   box-shadow: 1px 1px 0 0 var(--ink, #1a1a1a);
 }
 
 .tile__lottery-mark,
 .tile__god-mark {
   position: absolute;
-  top: -2px;
-  right: -2px;
-  font-size: 1.0cqw;
+  top: 0;
+  right: 0;
+  font-size: 0.85cqw; /* 缩弱：不与地名抢视线 */
   line-height: 1;
   width: 1.4em;
   height: 1.4em;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1.5px solid var(--ink, #1a1a1a);
+  border: 1px solid var(--ink, #1a1a1a);
   border-radius: 50%;
   box-shadow: 1px 1px 0 0 rgba(0,0,0,0.3);
+  opacity: 0.9;
   z-index: 2;
 }
 .tile__lottery-mark { background: #f97316; }
@@ -589,7 +684,7 @@ function onTile(t) {
 .tile__pawns {
   position: absolute;
   left: 50%;
-  top: 53%;
+  top: 82%;
   transform: translate(-50%, -50%);
   display: grid;
   grid-template-columns: repeat(var(--cols, 2), auto);
@@ -597,7 +692,7 @@ function onTile(t) {
   align-content: center;
   gap: 0.4cqw 0.5cqw;
   width: 86%;
-  height: 60%;
+  height: 25%;
   pointer-events: none;
 }
 
@@ -608,6 +703,23 @@ function onTile(t) {
   align-items: center;
   gap: 1px;
   pointer-events: none;
+}
+
+/* 当前回合玩家棋子：呼吸光圈 */
+.pawn--turn {
+  animation: pawn-breathe 1.6s ease-in-out infinite;
+}
+@keyframes pawn-breathe {
+  0%, 100% { filter: drop-shadow(0 0 1.5px rgba(250, 204, 21, 0.9)) drop-shadow(0 0 3px rgba(250, 204, 21, 0.55)); }
+  50% { filter: drop-shadow(0 0 3px rgba(250, 204, 21, 1)) drop-shadow(0 0 7px rgba(250, 204, 21, 0.85)); }
+}
+.pawn__dot {
+  width: var(--ps, 2.4cqw);
+  height: var(--ps, 2.4cqw);
+  border-radius: 50%;
+  background: var(--pc);
+  border: 1.5px solid rgba(26, 26, 26, 0.8);
+  box-shadow: 1.5px 1.5px 0 0 rgba(26, 26, 26, 0.4);
 }
 .pawn__face {
   width: var(--ps, 2.4cqw);
@@ -651,6 +763,8 @@ function onTile(t) {
   max-width: 9cqw;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* 外圈白晕：名牌与格子底色/地名分离，字本身不受影响 */
+  filter: drop-shadow(1px 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(-1px 0 0 rgba(255, 255, 255, 0.95));
 }
 .pawn__veh {
   display: none;

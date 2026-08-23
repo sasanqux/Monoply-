@@ -24,6 +24,14 @@
   --pop-blue: #3b82f6;
   --pop-yellow: #facc15;
   --pop-green: #22c55e;
+
+  /* 安全区（刘海/手势条/圆角屏），非全屏设备为 0，不影响桌面 */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  /* 手机端最小触摸目标（Apple HIG: 44px） */
+  --tap-min: 44px;
 }
 
 * {
@@ -41,6 +49,8 @@ body {
   -webkit-font-smoothing: antialiased;
   margin: 0;
   padding: 0;
+  /* 禁止横向滚动条（手机端棋盘自己管缩放，不靠 body 滚） */
+  overflow-x: hidden;
 }
 
 #app {
@@ -146,6 +156,8 @@ body {
   padding: 10px 14px;
   outline: none;
   transition: box-shadow 0.15s ease;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .input-comic:focus {
@@ -365,22 +377,65 @@ body {
   color: var(--pop-red);
 }
 
-/* ===== 仅手机端：禁止选择文字 / 下拉刷新 ===== */
-@media (max-width: 768px) {
-  * { user-select: none; -webkit-user-select: none; }
-  html, body { overscroll-behavior: none; touch-action: manipulation; }
+/* ===== 触屏设备通用优化（含 iPad 等宽触屏，不再只限 ≤768px） ===== */
+@media (pointer: coarse) {
+  /* 禁止文字选择和长按菜单（输入框除外，否则没法打字） */
+  *:not(input):not(textarea) {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+  /* 禁止下拉刷新 / 双指缩放页面 / 手势导航触发滚动 */
+  html, body {
+    overscroll-behavior: none;
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+  }
+  /* 按钮最小触摸目标 + 去除 300ms 点击延迟 */
+  .btn-comic {
+    min-height: var(--tap-min);
+    touch-action: manipulation;
+  }
+  /* 动画元素强制合成层，保证 60/120Hz 流畅 */
+  .btn-comic,
+  .card-comic,
+  .modal-card,
+  .fork-card {
+    transform: translateZ(0);
+  }
 }
 
-/* ===== 仅 App（Capacitor）：全屏沉浸式 ===== */
+/* ===== 手机端（≤768px）：布局收紧 ===== */
+@media (max-width: 768px) {
+  .btn-comic--sm {
+    min-height: 36px;
+  }
+}
+
+/* ===== Capacitor App：真全屏沉浸式 ===== */
 body.capacitor {
+  /* fixed 铺满视口，禁止 body 滚动 */
   overflow: hidden;
   position: fixed;
   inset: 0;
   width: 100%;
   height: 100%;
+  /* 不在 body 上加安全区 padding（避免和子元素的双层叠加导致黑边）；
+     安全区在具体元素（BagsBar 顶部 / ActionPanel 底部 / 弹窗）上用 env() 处理 */
+  padding: 0;
 }
 body.capacitor #app {
   overflow: hidden;
   width: 100%;
   height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 尊重用户"减少动画"偏好（无障碍） */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -27,21 +27,25 @@ let pingTimer = null
 onMounted(() => {
   const socket = getSocket()
   if (!socket) return
-  
+
   pingTimer = setInterval(() => {
     const start = Date.now()
+    ping.value = 0 // 每轮先重置，否则首次成功后超时判断永久失效
     socket.emit('ping_check', () => {
       ping.value = Date.now() - start
     })
-    // 5 秒无响应标记为超时
-    setTimeout(() => {
+    // 5 秒无响应标记为超时（句柄保存，卸载时清理）
+    pongTimeout = setTimeout(() => {
       if (ping.value === 0) ping.value = 999
     }, 5000)
   }, 3000)
 })
 
+let pongTimeout = null
+
 onUnmounted(() => {
   if (pingTimer) clearInterval(pingTimer)
+  if (pongTimeout) clearTimeout(pongTimeout)
 })
 
 const timerColor = computed(() => {
@@ -82,8 +86,8 @@ function applyPassword() {
 
 <template>
   <div class="game-menu">
-    <button class="btn-comic btn-comic--sm btn-comic--ghost" @click="open = !open">
-      游戏菜单 ▼
+    <button class="btn-comic btn-comic--sm btn-comic--ghost game-menu__btn" @click="open = !open">
+      菜单 ▼
     </button>
     
     <div v-if="open" class="menu-panel card-comic">
@@ -174,13 +178,19 @@ function applyPassword() {
   position: relative;
   display: inline-block;
 }
+.game-menu__btn {
+  font-size: 10px;
+  padding: 3px 6px;
+}
 
 .menu-panel {
   position: absolute;
-  bottom: 100%;
+  top: 100%;
   right: 0;
-  margin-bottom: 8px;
+  margin-top: 8px;
   min-width: 200px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
   z-index: 100;
   display: flex;
   flex-direction: column;
@@ -273,5 +283,7 @@ function applyPassword() {
   padding: 6px 10px;
   font-size: 13px;
   margin-bottom: 6px;
+  min-width: 0;
+  flex: 1;
 }
 </style>

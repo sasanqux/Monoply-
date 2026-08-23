@@ -63,6 +63,7 @@ export function createRoom(hostName, settings = {}) {
     aiTakeover: false, // AI 托管：默认关闭，仅房主可开启
     turnTimer: null, // 回合倒计时定时器
     turnTimeLeft: 30, // 剩余秒数
+    _timerTurnKey: null, // 倒计时所属回合标识（index.js 按 turnIndex@round 计算）：仅回合变化才重置 30 秒
     createdAt: Date.now(),
     _cleanupTimer: null,
     _aiTimer: null,
@@ -77,18 +78,15 @@ export function joinRoom(roomId, playerName, socketId, color, password, playerId
   if (!room) return { error: '房间不存在' }
   const name = sanitizeName(playerName)
 
-  // 对局中断线重连：优先按 playerId 找回原座位（稳定标识，不依赖昵称可猜），
-  // 没传 playerId 才退回按昵称匹配（兼容旧客户端 / net-smoke 旧用例）
+  // 对局中断线重连：只按 playerId 找回原座位（稳定标识；不按昵称兜底，缩小座位顶替攻击面）。
+  // 不再要求座位已标记 disconnected：服务端 ping 超时打标要 10-15 秒，客户端 1 秒内重连时
+  // 座位还没标掉线，只要来的不是同一连接（p.socketId !== socketId）就允许认领重连。
   if (room.status === 'playing') {
-    // 重连同样要验密码（否则知道房间码+昵称即可顶替座位）
+    // 重连同样要验密码（否则知道房间码+playerId 即可顶替座位）
     if (room.password && room.password !== password) return { error: '房间密码错误' }
-    let dc = null
-    if (playerId) {
-      dc = room.players.find((p) => p.disconnected && p.id === playerId)
-    }
-    if (!dc) {
-      dc = room.players.find((p) => p.disconnected && p.name === name)
-    }
+    const dc = playerId
+      ? room.players.find((p) => p.id === playerId && p.socketId !== socketId)
+      : null
     if (dc) {
       dc.socketId = socketId
       dc.disconnected = false
@@ -101,7 +99,7 @@ export function joinRoom(roomId, playerName, socketId, color, password, playerId
       }
       return { room, playerId: dc.id, rejoined: true }
     }
-    return { error: '游戏已开始，只能用掉线前的昵称重连' }
+    return { error: '游戏已开始，只能通过断线重连加入' }
   }
 
   if (room.status !== 'waiting') return { error: '游戏已开始，无法加入' }
@@ -223,6 +221,7 @@ export function startGame(socketId) {
 export function handleAction(socketId, action) {
   const room = findRoomBySocket(socketId)
   if (!room || !room.gameState) return { error: '游戏未开始' }
+  if (room.paused) return { error: '游戏已暂停，无法操作' }
   const player = room.players.find((p) => p.socketId === socketId)
   if (!player) return { error: '不在房间' }
   const gs = room.gameState
@@ -382,8 +381,10 @@ export function removeRoom(roomId) {
   if (!room) return false
   if (room._cleanupTimer) clearTimeout(room._cleanupTimer)
   if (room._aiTimer) clearTimeout(room._aiTimer)
+  if (room.turnTimer) clearInterval(room.turnTimer) // 回合倒计时也是定时器，漏清会永久泄漏
   room._cleanupTimer = null
   room._aiTimer = null
+  room.turnTimer = null
   return rooms.delete(roomId)
 }
 

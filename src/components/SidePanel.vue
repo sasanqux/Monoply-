@@ -6,7 +6,8 @@ import { getSocket } from '../net/socket.js'
 
 const props = defineProps({
   state: Object,
-  current: Object,
+  current: Object, // 当前回合玩家（状态标记用）
+  me: Object, // 我自己（交易入口判断用：不对自己发起交易）
   selectablePlayers: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['playerClick', 'trade'])
@@ -286,7 +287,7 @@ function onPlayer(p) {
               </span>
             </div>
             <!-- 发起交易按钮（不对自己显示） -->
-            <div v-if="p.id !== current?.id" class="pd__row pd__row--trade">
+            <div v-if="p.id !== me?.id" class="pd__row pd__row--trade">
               <button class="btn-comic btn-comic--sm btn-comic--blue trade-btn" @click="emit('trade', p.id)">
                 🤝 发起交易
               </button>

@@ -170,8 +170,12 @@ function sendOffer() {
   gap: 12px;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .trade-grid { grid-template-columns: 1fr; }
+  .trade-card {
+    max-width: calc(100vw - 16px) !important;
+    width: calc(100vw - 16px) !important;
+  }
 }
 
 .trade-col {

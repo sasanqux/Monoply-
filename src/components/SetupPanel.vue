@@ -14,12 +14,12 @@ const selectedColor = ref(PLAYER_COLORS[0])
 
 const maxTurns = computed(() => {
   if (turnMode.value === 'off') return null
-  if (turnMode.value === 'custom') return Math.max(1, Math.floor(customTurns.value))
+  if (turnMode.value === 'custom') return Math.max(1, Math.floor(Number(customTurns.value) || 0)) || 40 // 空输入回退 40，NaN 会让回合上限静默失效
   return turnMode.value
 })
 
 const startMoney = computed(() => {
-  if (moneyMode.value === 'custom') return Math.max(100, Math.floor(customMoney.value))
+  if (moneyMode.value === 'custom') return Math.max(100, Math.floor(Number(customMoney.value) || 0)) || 20000
   return moneyMode.value
 })
 
@@ -109,6 +109,10 @@ function go() {
   gap: 12px;
   flex-wrap: wrap;
 }
+.setup__row .input-comic {
+  flex: 1;
+  min-width: 0;
+}
 
 .setup__label {
   width: 76px;
@@ -149,5 +153,14 @@ function go() {
 .setup__go {
   align-self: flex-start;
   margin-top: 4px;
+}
+@media (max-width: 768px) {
+  .setup { max-width: calc(100vw - 32px); }
+  .setup__row { gap: 8px; }
+  .setup__label { width: 60px; font-size: 12px; }
+  .seg-comic__btn { padding: 6px 10px; font-size: 12px; }
+  .setup__hint { font-size: 11px; }
+  .setup__input { width: 80px; }
+  .setup__go { align-self: stretch; }
 }
 </style>

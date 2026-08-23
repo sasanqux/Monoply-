@@ -146,25 +146,25 @@ export function stockPortfolioValue(player, stockRuntime) {
   return Math.round(total)
 }
 
-// 卡片效果：黑市卡（涨停 +20%）
-export function applyBlackStock(state, code) {
+// 卡片效果：黑市卡（涨停 +20%）——事件带 byPlayerId，服务器只发给用卡人（防对手偷看选股）
+export function applyBlackStock(state, code, playerId) {
   const def = STOCKS[code]
   if (!def) return false
   const rt = state.stockRuntime[code]
   if (!rt.activeEvents) rt.activeEvents = []
-  rt.activeEvents.push({ text: '黑市卡涨停', icon: '📈', delta: 0.20, turnsLeft: 1 })
-  state.log.push(`📈 黑市卡生效！${def.name} 下回合将涨停！`)
+  rt.activeEvents.push({ text: '黑市卡涨停', icon: '📈', delta: 0.20, turnsLeft: 1, byPlayerId: playerId })
+  state.log.push(`📈 有人在股市做了手脚…（只有 TA 自己知道是哪只股票）`)
   return true
 }
 
-// 卡片效果：红市卡（涨10%~30%）
-export function applyRedStock(state, code) {
+// 卡片效果：红市卡（涨10%~30%）——同上脱敏
+export function applyRedStock(state, code, playerId) {
   const def = STOCKS[code]
   if (!def) return false
   const rt = state.stockRuntime[code]
   const boost = 0.10 + Math.random() * 0.20  // 10%~30%
   if (!rt.activeEvents) rt.activeEvents = []
-  rt.activeEvents.push({ text: '红市卡大涨', icon: '📈', delta: boost, turnsLeft: 1 })
-  state.log.push(`📈 红市卡生效！${def.name} 下回合将大涨！`)
+  rt.activeEvents.push({ text: '红市卡大涨', icon: '📈', delta: boost, turnsLeft: 1, byPlayerId: playerId })
+  state.log.push(`📈 有人在股市做了手脚…（只有 TA 自己知道是哪只股票）`)
   return true
 }

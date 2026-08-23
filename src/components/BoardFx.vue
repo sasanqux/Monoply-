@@ -3,7 +3,6 @@
 // 纯表现层：不碰游戏规则，坐标与棋盘 tilePosition 对齐（0-100 百分比）
 import { ref, watch } from 'vue'
 import ComicIcon from './ComicIcon.vue'
-import { playerInitial } from '../game/index.js'
 
 const props = defineProps({
   state: Object,
@@ -43,7 +42,6 @@ watch(
         color: pl.color,
         name: pl.name,
         veh: pl.vehicle,
-        initial: playerInitial(pl),
         path: w.path,
         seg: 0,
       }
@@ -130,6 +128,7 @@ watch(
 // ===== 落地浮动数字（租金/收入/支出） =====
 const floats = ref([])
 let floatSeq = 0
+let prevFloatLogLen = 4 // 独立游标：一次 action 可能产生多条日志，逐条匹配不漏
 const FLOAT_RULES = [
   { re: /支付.*租金|支付.*使用费/, sign: '-', color: '#ef4444' },
   { re: /收租|租金.*获得|获得国补|大礼包|打卡/, sign: '+', color: '#22c55e' },
@@ -144,11 +143,14 @@ const FLOAT_RULES = [
 watch(
   () => props.state?.log?.length,
   (len) => {
-    if (!props.state || len == null || len <= prevLogLen) return
-    // 注意：这里 prevLogLen 已被上面的 watcher 更新，所以用 len-1 判断新条目
-    const line = props.state.log[len - 1]
-    const rule = FLOAT_RULES.find((r) => r.re.test(line))
-    if (!rule) return
+    if (!props.state || len == null) return
+    if (len < prevFloatLogLen) { prevFloatLogLen = len; return } // 新开局
+    if (len === prevFloatLogLen) return
+    // 遍历所有新增日志条目（只看最后一条会漏掉同 action 的中间条目）
+    for (let li = prevFloatLogLen; li < len; li++) {
+      const line = props.state.log[li]
+      const rule = FLOAT_RULES.find((r) => r.re.test(line))
+      if (!rule) continue
       // 从日志中提取数值（金额/积分/等级）
       let amount = null
       let textPrefix = '¥'
@@ -162,12 +164,12 @@ watch(
         const m = line.match(/[¥¥](\d+)/)
         if (m) amount = m[1]
       }
-      if (!amount) return
+      if (!amount) continue
       // 找到当前行动的玩家位置
       const p = props.state.players.find((pl) => pl.alive && pl.id === props.state.players[props.state.turnIndex]?.id)
-      if (!p) return
+      if (!p) continue
       const pos = props.posMap?.[p.pos]
-      if (!pos) return
+      if (!pos) continue
       const id = ++floatSeq
       const offsetX = (Math.random() * 8 - 4)
       floats.value.push({
@@ -177,9 +179,11 @@ watch(
         x: pos.x + offsetX,
         y: pos.y - 4,
       })
-    setTimeout(() => {
-      floats.value = floats.value.filter((f) => f.id !== id)
-    }, 1600)
+      setTimeout(() => {
+        floats.value = floats.value.filter((f) => f.id !== id)
+      }, 1600)
+    }
+    prevFloatLogLen = len
   }
 )
 </script>
@@ -197,8 +201,7 @@ watch(
         '--pc': w.color,
       }"
     >
-      <i class="fx__walker-face">{{ w.initial }}</i>
-      <em class="fx__walker-tag">{{ w.name }}</em>
+      <i class="fx__walker-dot"></i>
     </span>
 
     <!-- 拟声词 -->
@@ -245,18 +248,13 @@ watch(
   transition: left 0.32s ease, top 0.32s ease;
   animation: walker-hop 0.5s ease infinite alternate;
 }
-.fx__walker-face {
-  width: 30px;
-  height: 30px;
+.fx__walker-dot {
+  width: var(--ps, 2.4cqw);
+  height: var(--ps, 2.4cqw);
   border-radius: 50%;
   background: var(--pc);
-  box-shadow: 2px 2px 0 0 rgba(26, 26, 26, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  line-height: 1;
-  font-style: normal;
+  border: 1.5px solid rgba(26, 26, 26, 0.8);
+  box-shadow: 1.5px 1.5px 0 0 rgba(26, 26, 26, 0.4);
 }
 .fx__walker-tag {
   font-style: normal;
