@@ -274,7 +274,9 @@ watch(() => state.value?.dice, (dice) => {
   const cur = currentPlayer(st)
   if (!cur || !cur.alive) return
   // 自己掷的不播（DiceThrow 原生交互已处理）
-  if (cur.id === myPlayerId.value && !cur.isAI) return
+  // 单机：当前玩家不是 AI = 是我；联机：当前玩家 id = myPlayerId = 是我
+  const isMe = netMode.value ? cur.id === myPlayerId.value : !cur.isAI
+  if (isMe) return
   // 同一回合同一个人不重复触发
   const turnKey = `${cur.id}@${st.turnIndex}@${st.round}`
   if (lastSpectateTurnKey === turnKey) return
