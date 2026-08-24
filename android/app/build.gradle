@@ -1,13 +1,5 @@
 apply plugin: 'com.android.application'
 
-// 签名配置：从 android/keystore.properties 读取（该文件含密码，已被 .gitignore 排除）。
-// 文件缺失时 release 构建退回未签名 APK（CI 环境可正常跑 assembleRelease，不报错）。
-def keystoreProps = new Properties()
-def keystorePropsFile = rootProject.file("keystore.properties")
-if (keystorePropsFile.exists()) {
-    keystorePropsFile.withInputStream { keystoreProps.load(it) }
-}
-
 android {
     namespace = "com.chongqing.monopoly"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -28,23 +20,10 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
-    if (keystorePropsFile.exists()) {
-        signingConfigs {
-            release {
-                storeFile file("../" + keystoreProps['storeFile'])
-                storePassword keystoreProps['storePassword']
-                keyAlias keystoreProps['keyAlias']
-                keyPassword keystoreProps['keyPassword']
-            }
-        }
-    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            if (keystorePropsFile.exists()) {
-                signingConfig signingConfigs.release
-            }
         }
     }
 }
