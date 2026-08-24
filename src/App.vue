@@ -1281,7 +1281,7 @@ function onStockSell(payload) {
     </header>
 
     <!-- 首页 -->
-    <Home v-if="view === 'home'" @start="view = 'mode'" @rejoin="onRejoinGame" />
+    <Home v-if="view === 'home'" @start="view = 'mode'" @rejoin="onRejoinGame" @open-encyclopedia="showEncyclopedia = true" />
 
     <!-- 选模式 -->
     <ModeSelect

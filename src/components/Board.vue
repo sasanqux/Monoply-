@@ -321,8 +321,11 @@ function onTile(t) {
       <span class="tile__name" :class="{ 'tile__name--darkbg': tileFg(t) === '#ffffff' }" :style="{ fontSize: nameFont(t.name) }">
         <span v-for="(seg, i) in nameLines(t.name)" :key="i" class="tile__name-line">{{ seg }}</span>
       </span>
-      <span v-if="isPropertyTile(t) && t.price" class="tile__price">¥{{ t.price }}<span v-if="t.points" class="tile__points">{{ t.points }}</span></span>
-      <span v-if="t.shop" class="tile__cardshop" title="卡片商店：路过可购买卡片">卡</span>
+      <span v-if="isPropertyTile(t) && t.price" class="tile__price">
+        ¥{{ t.price }}<span v-if="t.points" class="tile__points">{{ t.points }}</span>
+        <span v-if="t.shop" class="tile__cardshop" title="卡片商店：路过可购买卡片">🛒</span>
+        <span v-if="isPropertyTile(t) && ownerOf(t.id) && levelOf(t.id) > 0" class="tile__lv" :title="'等级' + levelOf(t.id)">{{ '★'.repeat(levelOf(t.id)) }}</span>
+      </span>
       <span v-if="t.lottery" class="tile__lottery-mark" title="彩票站">🎫</span>
       <span v-if="t.god" class="tile__god-mark" title="神仙格">👻</span>
       <span v-if="state.bonusTile?.id === t.id" class="tile__bonus" title="随机奖金">💰</span>
@@ -332,9 +335,6 @@ function onTile(t) {
       <!-- 路障标记（路障存在 state.barriers，不污染全局 TILES） -->
       <span v-if="state.barriers?.[t.id]" class="tile__barrier" title="路障">🚧</span>
 
-      <span v-if="isPropertyTile(t) && ownerOf(t.id) && levelOf(t.id) > 0" class="tile__shop" :title="'等级' + levelOf(t.id)">
-        {{ levelOf(t.id) }}
-      </span>
       <span v-if="isPropertyTile(t) && ownerOf(t.id)" class="tile__owner" :style="{ background: ownerOf(t.id).color }"></span>
 
       <span class="tile__pawns" :style="pawnStyle(t.id)">
@@ -552,22 +552,8 @@ function onTile(t) {
   right: -5px;
   font-size: 1.3cqw;
 }
-
-.tile__shop {
-  position: absolute;
-  top: 0px;
-  left: 2px;
-  font-size: 0.9cqw;
-  line-height: 1;
-  font-weight: 900;
-  color: #fff;
-  background: var(--pop-red);
-  border: 1.5px solid var(--ink);
-  border-radius: 3px;
-  padding: 0 2px;
-}
-
-.tile__barrier {
+	
+	.tile__barrier {
   position: absolute;
   bottom: 0;
   right: 0;
@@ -582,21 +568,21 @@ function onTile(t) {
 }
 
 .tile__cardshop {
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  font-size: 0.6cqw; /* 缩小：不遮挡格子名 */
-  font-weight: 900;
-  line-height: 1;
-  color: #fff;
-  background: var(--pop-red, #ef4444);
-  border: 1px solid #fff;
-  border-radius: 3px;
-  padding: 0.5px 2px;
-  box-shadow: 1px 1px 0 0 var(--ink, #1a1a1a);
-}
-
-.tile__lottery-mark,
+	  font-size: 0.75cqw;
+	  margin-left: 2px;
+	  opacity: 0.7;
+	  vertical-align: middle;
+	  filter: grayscale(0.2);
+	}
+	.tile__lv {
+	  font-size: 0.7cqw;
+	  margin-left: 2px;
+	  color: var(--pop-red, #ef4444);
+	  opacity: 0.75;
+	  vertical-align: middle;
+	}
+	
+	.tile__lottery-mark,
 .tile__god-mark {
   position: absolute;
   top: 0;
