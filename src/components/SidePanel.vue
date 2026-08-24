@@ -232,7 +232,7 @@ function onPlayer(p) {
             </span>
             <i class="cnt" title="卡片积分" style="font-style: normal; font-weight: 900; color: #2563eb">{{ p.points ?? 0 }}</i>
             <span class="player__counts">
-              <i v-if="p.id === current?.id" class="cnt" title="卡片"><ComicIcon name="card" :size="12" />{{ p.hand.length }}</i>
+              <i v-if="p.id === current?.id" class="cnt" title="卡片"><ComicIcon name="card" :size="12" />{{ p.hand?.length ?? 0 }}</i>
               <i v-else class="cnt" title="卡片" style="opacity:0.4">🎴 ???</i>
               <i class="cnt" title="地产"><ComicIcon name="home" :size="12" />{{ p.properties.length }}</i>
             </span>
@@ -243,7 +243,7 @@ function onPlayer(p) {
           <div v-if="expanded === p.id" class="player__detail">
             <div class="pd__row">
               <span class="pd__label">总资产</span>
-              <span class="pd__val">¥{{ totalAssets(p) }}</span>
+              <span class="pd__val">¥{{ totalAssets(p, props.state?.stockRuntime) }}</span>
               <span v-if="assetCurveChange(p.id) !== 0" class="pd__delta" :class="assetCurveChange(p.id) > 0 ? 'pd__delta--up' : 'pd__delta--down'">
                 {{ assetCurveChange(p.id) > 0 ? '↑' : '↓' }}¥{{ Math.abs(assetCurveChange(p.id)) }}
               </span>
@@ -283,7 +283,7 @@ function onPlayer(p) {
             <div v-if="p.id === current?.id" class="pd__row">
               <span class="pd__label">手牌</span>
               <span class="pd__val pd__bag">
-                <ComicIcon name="card" :size="13" />{{ p.hand.map((c) => c.name).join('、') || '无' }}
+                <ComicIcon name="card" :size="13" />{{ (p.hand ?? []).map((c) => c.name).join('、') || '无' }}
               </span>
             </div>
             <!-- 发起交易按钮（不对自己显示） -->

@@ -845,7 +845,7 @@ watch(isMyTurn, (v, old) => {
     turnBannerTimer = setTimeout(() => { turnBanner.value = false }, 2000)
   }
 })
-const myLoanLimit = computed(() => cur.value ? loanLimit(cur.value, totalAssets(cur.value)) : 0)
+const myLoanLimit = computed(() => cur.value ? loanLimit(cur.value, totalAssets(cur.value, state.value?.stockRuntime)) : 0)
 
 // 随机路线卡片：仅在轮到我、且骰子/走格动画结束（确保玩家看清）时显示；必须点右上角 ✕ 关闭
 const showForkCard = computed(() => {
@@ -897,7 +897,7 @@ const selectableTiles = computed(() => {
       case 'monster':
         return TILES.filter((t) => t && st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id))).map((t) => t.id)
       case 'barrier':
-        return TILES.filter((t) => t && isPropertyTile(t) && !t.barrier).map((t) => t.id)
+        return TILES.filter((t) => t && isPropertyTile(t) && !st.barriers?.[t.id]).map((t) => t.id)
       case 'swap':
         if (selecting.value.swapStep === 1) return me.properties.filter((i) => isPropertyTile(TILES[i]))
         return TILES.filter((t) => t && st.players.some((p) => p.alive && p.id !== me.id && p.properties.includes(t.id))).map((t) => t.id)
@@ -974,6 +974,11 @@ function onStripPlayerClick(p) {
 // 手牌点击
 function useCard(card) {
   if (!isMyTurn.value) return
+  // 第一回合不能用卡：提前提示，不让玩家白选目标
+  if (mePlayer.value?.firstTurn) {
+    showNetNotice('第一回合不能用卡！')
+    return
+  }
   // 本回合已用过卡片：不进入选目标模式，直接提示
   if (mePlayer.value?.cardUsed) {
     showNetNotice('本回合已经用过卡片了（每回合限1张）')

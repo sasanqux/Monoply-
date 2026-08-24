@@ -271,8 +271,13 @@ export function handleAction(socketId, action) {
     return { ok: true, room }
   }
 
-  // 其余操作：仅当前回合玩家
-  if (!cur || player.id !== cur.id) return { error: '还没轮到你' }
+  // 全员可见的信息弹窗：任何房间成员都可关闭（不等当前玩家走完回合才消失）
+  const POPUP_CLOSE_ACTIONS = new Set([
+    'GOD_CLOSE', 'CHANCE_CLOSE', 'BANKRUPT_CLOSE', 'BONUS_INFO_CLOSE', 'LOTTERY_DRAW_CLOSE',
+  ])
+  if (!POPUP_CLOSE_ACTIONS.has(action.type) && (!cur || player.id !== cur.id)) {
+    return { error: '还没轮到你' }
+  }
 
   room._aiGuard = 0
 
@@ -445,7 +450,7 @@ function advanceTurnPastDead(gs) {
   gs.lotteryBoughtTurn = false
   const np = gs.players[next]
   np.cardUsed = false
-  np.firstTurn = false
+  gs.players[prev].firstTurn = false // 与 nextTurn 口径一致：清刚结束回合的 prev，不清下一位
   for (const p of gs.players) {
     if (p.upgradableTiles) p.upgradableTiles = []
   }

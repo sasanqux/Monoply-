@@ -44,10 +44,10 @@ export function takeLoan(state, player, amount) {
   state.log.push(`🏦 ${player.name} 向银行借款 ¥${amount}（到期还 ¥${repayAmount}，第 ${player.loanDue} 回合前）`)
 }
 
-// 还款：任意金额（不超过待还总额）
+// 还款：任意金额（不超过待还总额，且不超过现有现金——防透支绕过破产判定）
 export function repayLoan(state, player, amount) {
   const owed = player.loanRepay || 0
-  const actual = Math.min(amount, owed)
+  const actual = Math.min(amount, owed, Math.max(0, player.money))
   player.money -= actual
   const ratio = actual / owed
   const principalPaid = Math.round((player.loan || 0) * ratio)

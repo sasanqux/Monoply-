@@ -312,7 +312,7 @@ export function gameReducer(state, action) {
       if (p.loanDue > 0 && s.round >= p.loanDue) {
         processLoanDue(s, p)
         checkBankrupt(s, p)
-        if (!p.alive) break
+        if (!p.alive) { result = nextTurn(s); break } // 违约破产：推进回合（否则死锁）
       }
       if (p.jailLeft > 0) {
         p.jailLeft -= 1
@@ -413,6 +413,10 @@ export function gameReducer(state, action) {
       p.pos = finalChoice
       s.stepsRemaining = stepsLeft - 1 // 选路消耗 1 步
       s.phase = 'step' // 前端继续推进剩余步数
+      // 选路经过/落到彩票站也要记录（与 STEP 路径一致，否则分岔选路到彩票站不弹购彩）
+      if (!s._lotteryTile && LOTTERY_TILES.includes(finalChoice)) {
+        s._lotteryTile = finalChoice
+      }
       if (s.stepsRemaining <= 0) {
         s.stepsRemaining = 0
         s.phase = 'landed'
@@ -524,11 +528,17 @@ export function gameReducer(state, action) {
         const tile = TILES[s.pending.tileId]
         s.log.push(`${p.name} 放弃购买「${tile.name}」`)
         s.pending = null
+        s._bonusDeferred = null // 买地放弃后，暂存的买地挂起也作废
       }
       if (s.pending?.kind === 'metro') s.pending = null
       if (s.pending?.kind === 'shop') break // 卡片商店未关闭，不推进回合（等玩家关店）
       if (s.pending?.kind === 'shield') break // 免租卡询问未答复，不推进回合（否则租金被逃掉）
-      // 商店检测已在 reducer 顶部统一处理（152行），此处无需重复
+      if (s.pending?.kind === 'bonus_info') {
+        // 奖金弹窗未关闭：关闭并恢复被暂存的买地/免租等挂起（否则 _bonusDeferred 泄漏）
+        s.pending = s._bonusDeferred ?? null
+        s._bonusDeferred = null
+        if (s.pending) break // 恢复了买地等挂起 → 不推进，等玩家处理
+      }
       result = nextTurn(s)
       break
     }
@@ -537,6 +547,7 @@ export function gameReducer(state, action) {
     case 'TRADE_OFFER': {
       // action: { targetPlayerId, offer: { lands: [], money: 0 }, request: { lands: [], money: 0 } }
       if (s.phase !== 'landed') break
+      if (s.pending) break // 已有挂起（买地/免租/奖金等）时不允许发交易，防覆盖
       const target = s.players.find((pl) => pl.alive && pl.id === action.targetPlayerId)
       if (!target || target.id === p.id) break
       // 金额归一（拒绝负数：负数金额在接受阶段会被跳过，等于无效条款）

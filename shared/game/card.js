@@ -87,9 +87,8 @@ export function applyCard(state, player, card, target) {
       return true
     }
     case 'steal': {
-      const others = alivePlayers(state).filter((p) => p.id !== player.id && p.hand.length > 0)
-      if (others.length === 0) return false
-      const them = others[Math.floor(Math.random() * others.length)]
+      const them = state.players.find((p) => p.id === target?.playerId && p.alive && p.hand.length > 0)
+      if (!them || them.id === player.id) return false
       const card = them.hand.splice(Math.floor(Math.random() * them.hand.length), 1)[0]
       player.hand.push(card)
       state.log.push(`👊 ${player.name} 用抢夺卡抢走了 ${them.name} 的「${card.name}」`)

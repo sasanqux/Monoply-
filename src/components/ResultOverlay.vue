@@ -10,11 +10,11 @@ const emit = defineEmits(['again'])
 
 const ranking = computed(() =>
   [...props.state.players]
-    .sort((a, b) => totalAssets(b) - totalAssets(a))
+    .sort((a, b) => totalAssets(b, props.state.stockRuntime) - totalAssets(a, props.state.stockRuntime))
     .map((p, i) => ({
       ...p,
       rank: i + 1,
-      assets: totalAssets(p),
+      assets: totalAssets(p, props.state.stockRuntime),
       // 资产明细：现金 / 地产（按地价合计）/ 股票持仓市值
       cash: p.money,
       land: p.properties.reduce((s, id) => s + (TILES[id]?.price || 0), 0),

@@ -46,7 +46,7 @@ const lands = computed(() => {
       lv,
       shop: SHOPS[lv],
       value: t.price + Math.round(t.price * 0.5 * lv),
-      canUp: props.isMyTurn && isPropertyTile(t) && !(isMetro(t) && !t.upgradable) && lv < 3 && props.me.money >= upgradeCost(t),
+      canUp: props.isMyTurn && isPropertyTile(t) && !(isMetro(t) && !t.upgradable) && lv < 3 && props.me.money >= upgradeCost(t) && !mortgaged && (props.me.upgradableTiles?.includes(id) ?? false),
       group,
       mortgaged,
       canMortgage: !mortgaged && canMortgage(props.me, id),
