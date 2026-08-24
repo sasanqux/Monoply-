@@ -9,6 +9,7 @@ const props = defineProps({
   diceCount: Number,   // 当前载具骰子数（idle 时用于显示待投骰子数量）
   boardEl: Object,     // 棋盘 DOM（算落点）
   anchorEl: Object,    // 操作面板 DOM（初始位置锚点：面板右侧靠中间）
+  spectate: Object,    // null | { playerId, playerName, dice, diceCount } — 观演模式
 })
 const emit = defineEmits(['throw', 'settle'])
 
@@ -230,11 +231,11 @@ function endRot(faces) {
 }
 let rollEnds = null
 
-function startRolling() {
+function startRolling(overrideFaces) {
   state.value = 'rolling'
   scale.value = 1
   // 联机时广播可能晚于动画开始：先按已有值起滚，真实点数到达后由 watch 校正
-  const faces = props.finalDice?.length ? props.finalDice : [1]
+  const faces = overrideFaces || (props.finalDice?.length ? props.finalDice : [1])
   rollEnds = endRot(faces)
   const from = cubes.map((c) => ({ x: c.x, y: c.y }))
   const ends = rollEnds
@@ -266,6 +267,23 @@ watch(
     if (state.value !== 'rolling' || !fd?.length || !rollEnds || fd.length !== rollEnds.length) return
     const next = endRot(fd)
     for (let i = 0; i < next.length; i++) rollEnds[i] = next[i]
+  }
+)
+
+// 观演模式：别人掷骰时自动在屏幕中央翻滚
+watch(
+  () => props.spectate,
+  (sp) => {
+    if (!sp) return
+    const vw = window.innerWidth, vh = window.innerHeight
+    const w = pairWidth(sp.diceCount || 1)
+    pos.x = vw / 2 - w / 2
+    pos.y = vh * 0.28
+    scale.value = 1
+    syncCubes(sp.diceCount || 1)
+    cubes.forEach((c) => { c.x = 0; c.y = 0 })
+    // 直接进入翻滚（跳过拖拽+飞行阶段）
+    startRolling(sp.dice)
   }
 )
 
@@ -314,8 +332,9 @@ const dieStyles = computed(() =>
       :style="pairStyle"
       @pointerdown="onPointerDown"
     >
-      <p v-if="state === 'idle'" class="dice-throw__hint">🎯 拖到棋盘或点击投掷</p>
-      <button v-if="state === 'idle' && canThrow" class="dice-throw__tap" @pointerdown.stop @click.stop="quickRoll">点击投掷</button>
+      <p v-if="state === 'idle' && !props.spectate" class="dice-throw__hint">🎯 拖到棋盘或点击投掷</p>
+      <button v-if="state === 'idle' && canThrow && !props.spectate" class="dice-throw__tap" @pointerdown.stop @click.stop="quickRoll">点击投掷</button>
+      <p v-if="props.spectate && state !== 'gone'" class="dice-throw__label">🎲 {{ props.spectate.playerName }} 掷出 {{ props.spectate.dice.reduce((a, b) => a + b, 0) }} 点</p>
       <div
         v-for="i in dieCount"
         :key="i"
@@ -403,6 +422,29 @@ const dieStyles = computed(() =>
 }
 .dice-throw__tap:active {
   transform: translateX(-50%) scale(0.94);
+}
+
+/* 观演标签：谁掷了骰、掷出几点 */
+.dice-throw__label {
+  position: absolute;
+  left: 50%;
+  bottom: -36px;
+  transform: translateX(-50%);
+  font-size: 13px;
+  font-weight: 900;
+  background: var(--pop-yellow);
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  box-shadow: 3px 3px 0 0 var(--ink);
+  padding: 5px 16px;
+  white-space: nowrap;
+  z-index: 3;
+  pointer-events: none;
+  animation: label-pop 0.3s ease-out;
+}
+@keyframes label-pop {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.9); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 
 .die3d {

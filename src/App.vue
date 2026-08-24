@@ -261,6 +261,41 @@ const actionPanelEl = ref(null)   // 操作面板 DOM（骰子初始位置锚点
 const diceThrowing = ref(false)   // 玩家投掷动画播放中（期间 BoardFx 不播骰子动画）
 const diceRolled = ref(false)     // 本回合已投掷（防止重投）
 
+// 观演骰子：别人掷骰时在屏幕中央自动翻滚（单机 AI 回合 + 联机其他玩家回合都触发）
+const spectateDice = ref(null)    // null | { playerId, playerName, dice, diceCount }
+
+// 监听骰子值变化：当前玩家不是"我"时触发观演动画（自己掷的由 DiceThrow 原生交互处理）
+let lastSpectateTurnKey = null
+watch(() => state.value?.dice, (dice) => {
+  if (!dice || !Array.isArray(dice) || dice.length === 0) return
+  const st = state.value
+  if (!st || st.status !== 'playing') return
+  if (st.phase === 'order') return // 定序阶段不播观演（3 人连续掷太吵）
+  const cur = currentPlayer(st)
+  if (!cur || !cur.alive) return
+  // 自己掷的不播（DiceThrow 原生交互已处理）
+  if (cur.id === myPlayerId.value && !cur.isAI) return
+  // 同一回合同一个人不重复触发
+  const turnKey = `${cur.id}@${st.turnIndex}@${st.round}`
+  if (lastSpectateTurnKey === turnKey) return
+  lastSpectateTurnKey = turnKey
+  spectateDice.value = {
+    playerId: cur.id,
+    playerName: cur.name,
+    dice: [...dice],
+    diceCount: dice.length,
+  }
+})
+
+// 观演骰子动画结束后清除
+function onSpectateSettle() {
+  if (spectateDice.value) {
+    spectateDice.value = null
+    return
+  }
+  onDiceSettle()
+}
+
 // 卡牌目标选择模式
 const selecting = ref(null) // { type:'card', id, mode:'tile'|'player'|'swap', swapStep, myTile }
 const infoTile = ref(null) // 当前查看详情的格子 id
@@ -1532,14 +1567,15 @@ function onStockSell(payload) {
            Teleport 到 body 最外层，避免页面 DOM 里带 transform/filter 的祖先让 fixed 失效，导致骰子随页面滚动 -->
       <Teleport to="body">
         <DiceThrow
-          v-if="canThrowDice || diceThrowing"
+          v-if="canThrowDice || diceThrowing || spectateDice"
           :can-throw="canThrowDice"
-          :final-dice="state.dice || undefined"
-          :dice-count="cur ? VEHICLES[cur.vehicle]?.dice : 1"
+          :final-dice="spectateDice ? spectateDice.dice : (state.dice || undefined)"
+          :dice-count="spectateDice ? spectateDice.diceCount : (cur ? VEHICLES[cur.vehicle]?.dice : 1)"
           :board-el="boardEl"
           :anchor-el="actionPanelEl && actionPanelEl.$el"
+          :spectate="spectateDice"
           @throw="onDiceThrow"
-          @settle="onDiceSettle"
+          @settle="onSpectateSettle"
         />
       </Teleport>
 
