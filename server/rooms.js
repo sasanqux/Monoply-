@@ -1,6 +1,7 @@
 // rooms.js — 房间管理：创建/加入/离开/准备/开始/游戏操作/掉线托管/清理
 // 游戏逻辑统一 import 自 shared/game（与前端共用同一份，消灭双副本漂移）
 import { gameReducer, createInitialState, aiDecide, currentPlayer, PLAYER_COLORS, getWinnerByElimination } from '../shared/game/index.js'
+import { scheduleSave, deleteSnapshot, cancelSave } from './persist.js'
 
 const rooms = new Map()
 const MAX_ROOMS = 100 // 房间数量上限（防无限制创建耗尽内存）
@@ -93,10 +94,16 @@ export function joinRoom(roomId, playerName, socketId, color, password, playerId
       const gp = room.gameState?.players.find((p) => p.id === dc.id)
       if (gp) gp.isAI = false
       room._aiGuard = 0
+      // 有人回来了 → 撤掉恢复房间时挂的 24h 兜底回收定时器
+      if (room._cleanupTimer && room.gameState?.status === 'playing') {
+        clearTimeout(room._cleanupTimer)
+        room._cleanupTimer = null
+      }
       // 如果重连的本来就是房主 → 恢复房主权限（按玩家 id 判定，不受 socketId 变化影响）
       if (dc.id === room.hostPlayerId) {
         room.hostId = socketId
       }
+      scheduleSave(room)
       return { room, playerId: dc.id, rejoined: true }
     }
     return { error: '游戏已开始，只能通过断线重连加入' }
@@ -160,6 +167,7 @@ export function leaveRoom(socketId) {
       player.socketId = null
       const gp = room.gameState?.players.find((p) => p.id === player.id)
       if (gp) gp.isAI = true
+      scheduleSave(room)
       // 全员掉线 → 房间作废
       if (room.players.every((p) => p.disconnected)) {
         removeRoom(roomId)
@@ -214,6 +222,7 @@ export function startGame(socketId) {
   })
   room.status = 'playing'
   room._aiGuard = 0
+  scheduleSave(room)
   return { ok: true, room, gameState: room.gameState }
 }
 
@@ -296,6 +305,7 @@ export function handleAction(socketId, action) {
 function applyAction(room, action) {
   room.gameState = gameReducer(room.gameState, action)
   autoStep(room)
+  scheduleSave(room) // 对局内一切状态变更统一从这里落盘（防抖 1s）
 }
 
 // 自动推进 STEP：phase='step' 且还有剩余步数时一路走完（遇分岔/落地自然停）
@@ -390,6 +400,8 @@ export function removeRoom(roomId) {
   room._cleanupTimer = null
   room._aiTimer = null
   room.turnTimer = null
+  cancelSave(roomId) // 撤掉待写入的防抖任务，避免删房后又被写回磁盘（僵尸快照复活）
+  deleteSnapshot(roomId).catch(() => {})
   return rooms.delete(roomId)
 }
 
@@ -587,4 +599,57 @@ export function setPassword(socketId, password) {
 export function getPassword(roomId) {
   const room = rooms.get(roomId)
   return room?.password || null
+}
+
+// ===== 快照恢复：进程重启后把磁盘上的进行中对局装回内存 =====
+// 由 index.js 启动时调用（传入 persist.loadSnapshots() 的结果）。
+// 座位全部标记掉线、游戏侧玩家转 AI：原玩家凭 playerId 重连即找回座位，
+// 未重连期间由回合超时/托管机制代打，对局不会永久卡死。
+export function restoreAllRooms(rawList) {
+  let n = 0
+  for (const data of rawList || []) {
+    if (!data?.roomId || rooms.has(data.roomId)) continue
+    if (!Array.isArray(data.players) || data.players.length < 2) continue
+    const players = data.players.map((p) => ({
+      id: p.id,
+      name: sanitizeName(p.name),
+      socketId: null,
+      isAI: false, // 房间名单里都是真人座位；游戏侧的 isAI 单独翻转
+      ready: true,
+      color: p.color,
+      disconnected: true,
+    }))
+    const room = {
+      roomId: data.roomId,
+      status: 'playing',
+      hostId: null,
+      hostPlayerId: data.hostPlayerId ?? players[0]?.id ?? null,
+      settings: sanitizeSettings(data.settings),
+      players,
+      playerSeq: data.playerSeq ?? players.length,
+      gameState: data.gameState,
+      chat: Array.isArray(data.chat) ? data.chat : [],
+      gameLog: Array.isArray(data.gameLog) ? data.gameLog : [],
+      password: data.password ?? null,
+      paused: false, // 重启后不继承暂停：倒计时/托管从干净状态重新起表
+      aiTakeover: !!data.aiTakeover,
+      turnTimer: null, // 定时器不跨进程存活，下次广播由 startTurnTimer 自愈重启
+      turnTimeLeft: 30,
+      _timerTurnKey: null,
+      createdAt: data.createdAt ?? Date.now(),
+      // 兜底回收：若始终无人回来，24h 后清房防内存/快照滞留
+      _cleanupTimer: setTimeout(() => {
+        console.log(`[cleanupRoom] ${data.roomId} (restored but never rejoined in 24h)`)
+        removeRoom(data.roomId)
+      }, 24 * 60 * 60 * 1000),
+      _aiTimer: null,
+      _aiGuard: 0,
+    }
+    if (!room.gameState?.players?.length) continue
+    for (const gp of room.gameState.players) gp.isAI = true
+    rooms.set(room.roomId, room)
+    n++
+    console.log(`[restore] 恢复对局房间 ${room.roomId}（${players.length} 名玩家待重连）`)
+  }
+  return n
 }

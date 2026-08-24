@@ -10,8 +10,9 @@ import {
   startGame, handleAction, addChat, count,
   toggleReady, removeRoom, serverNextAction, applyServerAction,
   addLog, getLog, surrender, togglePause, toggleAITakeover, kickPlayer, setPassword, getPassword,
-  getRoom,
+  getRoom, restoreAllRooms,
 } from './rooms.js';
+import { loadSnapshots } from './persist.js';
 import { aiDecide, currentPlayer } from '../shared/game/index.js';
 
 // ===== CORS 收紧 =====
@@ -581,6 +582,16 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 8080;
+
+// 先恢复磁盘上的进行中对局，再开始监听（重连玩家进来时房间已就绪）
+try {
+  const snapshots = await loadSnapshots();
+  const n = restoreAllRooms(snapshots);
+  if (n > 0) console.log(`[persist] 已从磁盘恢复 ${n} 个进行中的对局`);
+} catch (e) {
+  console.error('[persist] 恢复快照失败（服务器照常启动）:', e.message);
+}
+
 httpServer.listen(PORT, () => {
   console.log(`\n🎮 大富翁——重庆之旅服务器: http://localhost:${PORT}\n`);
 });

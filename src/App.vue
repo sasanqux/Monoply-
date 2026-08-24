@@ -443,6 +443,7 @@ function applyNetState(gs) {
   // 收到广播 = 上一条 action 已处理，解除连点锁
   awaitingAck = false
   clearTimeout(ackTimeoutTimer)
+  clearTimeout(_diceTimeout)
   // 无论成功与否，先清除"掷骰中"锁——这是修复掷骰卡住的核心
   diceThrowing.value = false
   animating.value = false
@@ -478,6 +479,7 @@ function applyNetState(gs) {
   } catch (e) {
     console.error('[applyNetState] ERROR:', e)
     // 出错时也确保清除动画锁
+    clearTimeout(animTimer)
     animating.value = false
     animatingPids.value = []
   }
@@ -512,13 +514,14 @@ function buildMovePaths(newState, prevMap) {
       }
       if (ok) startIdx = prev.length
     }
-    const seg = wp.slice(startIdx)
-    if (seg.length >= 1) {
-      // 补上起点，让棋子从上一格滑入第一个目标格（避免闪现）
-      const from = startIdx > 0 ? wp[startIdx - 1] : pl.pos
-      if (from === seg[0]) continue // 起点=终点，无需动画
-      paths.push({ pid: pl.id, path: [from, ...seg] })
-    }
+    let seg = wp.slice(startIdx)
+    // 补上起点，让棋子从上一格滑入第一个目标格（避免闪现）
+    const from = startIdx > 0 ? wp[startIdx - 1] : pl.pos
+    // 服务端每次掷骰都会重置 walkPath=[当前位置]，与上回合遗留快照前缀必然失配；
+    // 旧逻辑此时整段 continue，联机下每回合首次移动的动画被整段丢弃（棋子瞬移）
+    if (from === seg[0]) seg = seg.slice(1)
+    if (seg.length === 0) continue // 无新增段，无需动画
+    paths.push({ pid: pl.id, path: [from, ...seg] })
   }
   return { paths, nextMap }
 }

@@ -2,20 +2,17 @@
 // 类型：start 起点 / land 普通地产 / scenic 景点 / station 轻轨站 / mall 商圈 / chance 事件 / corner 奖励格
 // 走棋为无向图：每格 neighbors 记录所有相邻格，movement.js 用「邻居 - 来路」动态算可选出口
 // 坐标：网格 (col,row)，大块占 w×h 格；tilePosition 由网格换算为 0-100 百分比
-// 特殊：大坪(52)→化龙桥(44) 为单向汇入，44 的 neighbors 不含 52（化龙桥不是分叉点）
+// 邻接双向对称：所有支线（含 悦来↔鸳鸯 26-36、磁器口↔南桥寺 19-41、大坪↔化龙桥 52-44）
+// 均在两端登记 neighbors，由 scripts/check-symmetric.mjs 校验
 
 export const START_MONEY_DEFAULT = 20000
-export const JAIL_TURNS = 2
-export const HOSPITAL_FEE = 800
-export const WORKSHOP_FEE = 200
 export const UPGRADE_COST_RATIO = 0.5
 export const SELL_RATIO = 0.5
 export const METRO_FEE = 150 // 轻轨使用费（乘坐费 + 落到他人均为同一价格）
 export const START_ID = 1
 export const TILE_COUNT = 52
 
-// 商圈组合（group 字段）→ 名称；拥有达到阈值 → 租金 ×1.5
-// 阈值规则：≤8块组需5块，9块组需5块
+// 商圈组合（group 字段）→ 名称；集齐 threshold 块 → 租金 ×1.5（当前全部为 5 块）
 export const GROUPS = {
   "g1 \u6e1d\u4e2d\u6838\u5fc3": { name: "渝中核心", color: '#ef4444', threshold: 5 },
   "g2 \u4e24\u6c5f\u5546\u4e1a": { name: "两江商业", color: '#3b82f6', threshold: 5 },
@@ -39,7 +36,7 @@ export const VEHICLES = {
   car: { name: '汽车', dice: 3, icon: 'car' },
   plane: { name: '飞机', dice: 5, icon: 'plane' },
 }
-export const VEHICLE_ORDER = ['walk', 'bike', 'moto', 'car', 'plane']
+export const VEHICLE_ORDER = ['walk', 'moto', 'car', 'plane']
 
 // 52 格（索引 = 格子 id，1-52；id 1 = 朝天门起点）
 // 主环：1-50-33-34-35-36-37-38-39-40-41-43-44-45-46-47-48-49-2-3-4-5-6-7-8-9-10-11-12-13-14-15-16-17-18-19-20-21-22-23-24-25-26-27-28-29-30-31-32-1

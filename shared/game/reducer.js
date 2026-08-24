@@ -274,7 +274,12 @@ export function gameReducer(state, action) {
       // 跳过已有成绩的玩家：加赛只重掷平局者，未平局者的首次成绩保留
       while (os.index < s.players.length && os.rolls[s.players[os.index].id]) os.index++
       const curPlayer = s.players[os.index]
-      if (!curPlayer) break
+      if (!curPlayer) {
+        // 加赛场景：平局者重掷完，末尾未参赛者被跳过使 index 越过数组末端，
+        // 此时所有人都有成绩 → 直接结算排序（否则卡死在 order 阶段）
+        resolveOrder(s)
+        break
+      }
       // 掷 3 颗骰子
       const dice = []
       for (let i = 0; i < 3; i++) dice.push(1 + Math.floor(Math.random() * 6))
@@ -723,7 +728,12 @@ export function gameReducer(state, action) {
 
     // 破产弹窗：关闭
     case 'BANKRUPT_CLOSE': {
-      if (s.pending?.kind === 'bankrupt') s.pending = null
+      if (s.pending?.kind !== 'bankrupt') break
+      const deadId = s.pending.playerId
+      s.pending = null
+      // 破产者正是当前回合玩家：关闭弹窗后直接推进回合
+      // （死者无法再点"结束回合"，否则对局卡在 landed 阶段等超时）
+      if (!p.alive && p.id === deadId) result = nextTurn(s)
       break
     }
 
@@ -1129,6 +1139,13 @@ export function gameReducer(state, action) {
     result._bonusDeferred = result.pending ?? null
     result.pending = { kind: 'bonus_info', ...result._claimedBonus }
     result._claimedBonus = null
+  }
+  // 破产弹窗兜底转正：handleLanding 之外的扣款路径（免租询问选"正常支付"、贷款到期、
+  // 卡片效果等）也可能致死，这些路径不经过 handleLanding 的收尾转正；
+  // 若本 action 结束后无其他 pending，立即弹出，不再拖到下一次落地才显示
+  if (result._bankruptPopup && !result.pending && result.status === 'playing') {
+    result.pending = { kind: 'bankrupt', ...result._bankruptPopup }
+    result._bankruptPopup = null
   }
   return result
 }
