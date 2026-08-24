@@ -83,13 +83,17 @@ function clearGameInfo() {
 
 // 冷启动不自动跳进对局：存档保留（供 Home 的"返回游戏"按钮读取），手动重连走 onRejoinGame
 
-// 服务器拒绝/被踢等轻提示：顶部小气泡，2 秒自动清除（替代 alert）
-const netNotice = ref('')
-let netNoticeTimer = null
-function showNetNotice(msg) {
-  netNotice.value = msg || '操作失败，请重试'
-  clearTimeout(netNoticeTimer)
-  netNoticeTimer = setTimeout(() => { netNotice.value = '' }, 2000)
+// ===== 顶部通知栈：所有轻提示统一入口（规则限制/服务器拒绝/被踢等） =====
+// 固定挂在屏幕最上层（z-index 压过一切弹窗），2.5 秒自动消失；多条排队堆叠，最多同屏 3 条
+const notices = ref([]) // [{ id, msg, type }] type: 'info'(黄) | 'error'(红)
+let noticeSeq = 0
+function showNetNotice(msg, type = 'info') {
+  const id = ++noticeSeq
+  notices.value.push({ id, msg: msg || '操作失败，请重试', type })
+  if (notices.value.length > 3) notices.value.shift()
+  setTimeout(() => {
+    notices.value = notices.value.filter((n) => n.id !== id)
+  }, 2500)
 }
 
 // Android 返回键：① 关闭弹窗/选择模式 → ② 回上级页面 → ③ 双击退出
@@ -620,7 +624,7 @@ function onSurrender() {
   const s = getSocketSafe()
   if (!s || !currentRoomId.value) return
   s.emit('surrender', { roomId: currentRoomId.value }, (res) => {
-    if (res?.error) alert(res.error)
+    if (res?.error) showNetNotice(res.error, 'error')
   })
 }
 
@@ -628,7 +632,7 @@ function onTogglePause() {
   const s = getSocketSafe()
   if (!s || !currentRoomId.value) return
   s.emit('togglePause', { roomId: currentRoomId.value }, (res) => {
-    if (res?.error) alert(res.error)
+    if (res?.error) showNetNotice(res.error, 'error')
   })
 }
 
@@ -636,7 +640,7 @@ function onKickPlayer(targetId) {
   const s = getSocketSafe()
   if (!s || !currentRoomId.value) return
   s.emit('kick', { roomId: currentRoomId.value, targetId }, (res) => {
-    if (res?.error) alert(res.error)
+    if (res?.error) showNetNotice(res.error, 'error')
   })
 }
 
@@ -644,7 +648,7 @@ function onToggleAITakeover() {
   const s = getSocketSafe()
   if (!s || !currentRoomId.value) return
   s.emit('toggleAITakeover', { roomId: currentRoomId.value }, (res) => {
-    if (res?.error) alert(res.error)
+    if (res?.error) showNetNotice(res.error, 'error')
   })
 }
 
@@ -652,8 +656,8 @@ function onSetPassword(password) {
   const s = getSocketSafe()
   if (!s || !currentRoomId.value) return
   s.emit('setPassword', { roomId: currentRoomId.value, password }, (res) => {
-    if (res?.error) alert(res.error)
-    else if (res?.ok) alert(password ? '密码设置成功' : '密码已取消')
+    if (res?.error) showNetNotice(res.error, 'error')
+    else if (res?.ok) showNetNotice(password ? '密码设置成功' : '密码已取消')
   })
 }
 
@@ -1262,8 +1266,12 @@ function onStockSell(payload) {
   <div class="app halftone">
     <!-- Android 返回键"再按一次退出"提示 -->
     <div v-if="backHint" class="back-hint">{{ backHint }}</div>
-    <!-- 服务器拒绝/被踢等轻提示（2 秒自动消失） -->
-    <div v-if="netNotice" class="net-notice">{{ netNotice }}</div>
+    <!-- 统一顶部通知栈（最上层可见：规则提示/服务器拒绝等，2.5s 自动消失） -->
+    <div class="notice-stack">
+      <TransitionGroup name="notice">
+        <div v-for="n in notices" :key="n.id" class="notice-item" :class="{ 'notice-item--error': n.type === 'error' }">{{ n.msg }}</div>
+      </TransitionGroup>
+    </div>
     <!-- 轮到你横幅 -->
     <div v-if="turnBanner" class="turn-banner">🎯 轮到你了</div>
     <header class="app__head">
@@ -1869,6 +1877,48 @@ function onStockSell(payload) {
   0% { transform: translateX(-50%) translateY(-30px); opacity: 0; }
   100% { transform: translateX(-50%) translateY(0); opacity: 1; }
 }
+
+/* ===== 顶部通知栈：fixed 最上层（z-index 压过所有弹窗层），保证"第一回合不能用卡"这类提示永远看得见 ===== */
+.notice-stack {
+  position: fixed;
+  top: calc(14px + var(--safe-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 10000; /* 弹窗层 1000 / 骰子 40 / 轮到你横幅 9998，通知栈压最上 */
+  pointer-events: none;
+  max-width: min(92vw, 480px);
+}
+.notice-item {
+  padding: 9px 22px;
+  background: var(--pop-yellow);
+  color: var(--ink);
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  box-shadow: 3px 3px 0 0 var(--ink);
+  font-size: 14px;
+  font-weight: 900;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  animation: notice-in 0.25s ease-out;
+}
+.notice-item--error {
+  background: var(--pop-red);
+  color: #fff;
+}
+@keyframes notice-in {
+  from { opacity: 0; transform: translateY(-14px) scale(0.92); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.notice-enter-active, .notice-leave-active { transition: all 0.22s ease; }
+.notice-enter-from { opacity: 0; transform: translateY(-14px) scale(0.92); }
+.notice-leave-to { opacity: 0; transform: translateY(-8px) scale(0.95); }
 
 /* 金钱变动飘字：大字上飘淡出 2.2s，颜色=玩家色 */
 .money-fx {
